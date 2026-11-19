@@ -75,6 +75,10 @@ main{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:0}
 .note{position:absolute;transform:translate(-50%,-50%);background:rgba(255,255,255,.94);border:1.5px solid currentColor;border-radius:8px;padding:3px 9px;font-size:14px;font-weight:700;white-space:pre;max-width:320px;overflow:hidden;text-overflow:ellipsis}
 #actionbar{position:absolute;top:14px;left:14px;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px;width:300px;max-width:calc(100% - 90px);max-height:calc(100% - 28px);overflow:auto;display:flex;flex-direction:column;gap:6px}
 #actionbar .acts{justify-content:flex-start}
+#actionbar .abhead{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center;gap:6px;padding:2px 0 4px;margin:-2px -2px 0;border-radius:8px}
+#actionbar .abhead:hover{background:var(--chip)}
+#actionbar .abhead::before{content:"";width:14px;height:10px;flex:none;opacity:.5;background:radial-gradient(circle,currentColor 1.2px,transparent 1.6px) 0 0/5px 5px}
+#actionbar.dragging .abhead{cursor:grabbing}
 #actionbar .acts-lbl{width:100%}
 .abhead{font-weight:800;font-size:13.5px;text-align:center}
 .acts{display:flex;flex-wrap:wrap;gap:2px;justify-content:center}
@@ -136,7 +140,7 @@ dialog .btn{border-color:var(--line)}
     <button class="btn" id="redoBtn" title="Redo (Ctrl+Y)" disabled><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4.5L16.5 8 13 11.5"/><path d="M16.5 8H8a4.5 4.5 0 000 9h3.5"/></svg></button>
   </div>
   <div class="grp" id="tools" role="group" aria-label="Tools">
-    <button class="btn" data-tool="move" aria-pressed="true" title="Move pieces (V)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 3l10 6.5-4.3 1.1 2.6 4.8-1.9 1-2.6-4.8L5 14.5z"/></svg><span class="lbl">Move</span></button>
+    <button class="btn" data-tool="move" aria-pressed="true" title="Move: drag pieces, drag empty space to slide the world, right-drag to spin (V)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 3l10 6.5-4.3 1.1 2.6 4.8-1.9 1-2.6-4.8L5 14.5z"/></svg><span class="lbl">Move</span></button>
     <button class="btn" data-tool="hand" aria-pressed="false" title="Hand: drag anywhere to spin the camera (H)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10V4.5a1.3 1.3 0 012.6 0V9M9.6 8.5V3.8a1.3 1.3 0 012.6 0V9M12.2 9V5a1.3 1.3 0 012.6 0v6.5c0 3.2-2.2 5.5-5.2 5.5-2.2 0-3.4-1-4.6-2.8L3.4 11a1.3 1.3 0 012.1-1.4L7 11.5"/></svg><span class="lbl">Hand</span></button>
     <button class="btn" data-tool="pen" aria-pressed="false" title="Pen: draw on the pieces and the floor (P)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5l3 3L7 16l-4 1 1-4z"/><path d="M11.5 5.5l3 3"/></svg><span class="lbl">Pen</span></button>
     <button class="btn" data-tool="text" aria-pressed="false" title="Text: click to write a note (T)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 5V3.5h12V5M10 3.5v13M7.5 16.5h5"/></svg><span class="lbl">Text</span></button>
@@ -532,6 +536,14 @@ const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasi
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true; controls.dampingFactor = 0.12; controls.maxPolarAngle = Math.PI*0.495;   // never below the floor
 controls.minDistance = 2.5; controls.maxDistance = 60;
+controls.screenSpacePanning = false;   // sliding moves along the floor, like moving a board on a table
+// Move tool: drag empty space to slide the world, right-drag to spin. Hand tool: drag anywhere to spin, right-drag to slide.
+function cameraButtons(spin){
+  controls.mouseButtons = spin ? { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN }
+                               : { LEFT:THREE.MOUSE.PAN, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.ROTATE };
+  controls.touches = spin ? { ONE:THREE.TOUCH.ROTATE, TWO:THREE.TOUCH.DOLLY_PAN } : { ONE:THREE.TOUCH.PAN, TWO:THREE.TOUCH.DOLLY_ROTATE };
+}
+cameraButtons(false);
 const HOME = { pos:[8.5, 7, 11], target:[0, 0.8, 0] };
 camera.position.set(...HOME.pos); controls.target.set(...HOME.target); controls.update();
 function resize(){
@@ -636,6 +648,17 @@ function paperPieceMeshes(parent, pieces, it, cols){
     parent.add(top, bot, new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color:0x334155, transparent:true, opacity:.5 })));
   }
 }
+// crease lines: valley dashed blue, mountain long-dashed red
+function creaseLines(parent, segs, y, faint){
+  for (const type of [0, 1]){
+    const pos = [];
+    for (const c of segs) if (c.m === type) pos.push(c.a[0]*PS, c.y ?? y, -c.a[1]*PS, c.b[0]*PS, c.y ?? y, -c.b[1]*PS);
+    if (!pos.length) continue;
+    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const ln = new THREE.LineSegments(lg, new THREE.LineDashedMaterial({ color:type ? 0xdc2626 : 0x1d4ed8, dashSize:type ? .26 : .1, gapSize:type ? .08 : .07, transparent:!!faint, opacity:faint ? .75 : 1 }));
+    ln.computeLineDistances(); parent.add(ln);
+  }
+}
 const rankOf = list => { const L = [...new Set(list.map(q => q.layer))].sort((a, b) => a - b); return q => L.indexOf(q.layer); };
 function buildPaper(it){
   const g = new THREE.Group(), inner = new THREE.Group(); g.add(inner);
@@ -644,19 +667,17 @@ function buildPaper(it){
     // the crease pattern: the square opened flat, valley creases dashed blue, mountain creases long-dashed red (seen from the coloured side)
     const tint = '#' + new THREE.Color(PAPER_COLS[it.c || 0]).lerp(new THREE.Color('#ffffff'), .78).getHexString();
     paperPieceMeshes(inner, [{ cur:SQUARE, flip:false, rank:0 }], it, { top:tint, bottom:PAPER_BACK });
-    for (const type of [0, 1]){
-      const seg = [];
-      for (const c of st.creases) if (c.m === type) seg.push(c.a[0]*PS, PY + 0.003, -c.a[1]*PS, c.b[0]*PS, PY + 0.003, -c.b[1]*PS);
-      if (!seg.length) continue;
-      const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
-      const ln = new THREE.LineSegments(lg, new THREE.LineDashedMaterial({ color:type ? 0xdc2626 : 0x1d4ed8, dashSize:type ? .26 : .1, gapSize:type ? .08 : .07 }));
-      ln.computeLineDistances(); inner.add(ln);
-    }
+    creaseLines(inner, [...(it.marks || []), ...st.creases], PY + 0.003);
   } else {
     const rk = rankOf(st.facets), pcs = st.facets.map(fc => ({ cur:curOf(fc), flip:fc.flip, rank:rk(fc) }));
     paperPieceMeshes(inner, pcs, it); top = Math.max(...pcs.map(p => p.rank));
+    // creases kept from before the paper was opened flat, drawn on each piece wherever it lies now
+    if (it.marks && it.marks.length){
+      const segs = []; st.facets.forEach(fc => { const y = PY + rk(fc)*PL + 0.0018; for (const s of markSegs(fc, it.marks)) segs.push({ ...s, y }); });
+      creaseLines(inner, segs, PY, true);
+    }
   }
-  g.userData = { key:shapeKey(it), inner, folds:it.folds, cp:!!it.cp, c:it.c || 0, topY:PY + top*PL };
+  g.userData = { key:shapeKey(it), inner, folds:it.folds, cp:!!it.cp, c:it.c || 0, marks:JSON.stringify(it.marks || []), topY:PY + top*PL };
   return g;
 }
 // one new fold, shown as the moving side swinging about the fold line
@@ -672,19 +693,19 @@ function buildPaperAnim(it, prevFolds){
   for (const m of mov) for (const q of m.cur){ c = P2.add(c, q); n++; maxd = Math.max(maxd, Math.abs(sideOf(f.p, sp.d, q))*PS); }
   c = P2.mul(c, 1/n);
   const up = new THREE.Vector3(c[0]*PS, PY, -c[1]*PS).sub(a).applyAxisAngle(axis, 0.3).y > 0 ? 1 : -1;
-  g.userData = { key:'anim', target:shapeKey(it), inner, folds:it.folds, cp:false, c:it.c || 0, topY:PY,
+  g.userData = { key:'anim', target:shapeKey(it), inner, folds:it.folds, cp:false, c:it.c || 0, marks:JSON.stringify(it.marks || []), topY:PY,
                  anim:{ t0:performance.now(), sub, a, axis, sign:f.m ? -up : up, lift:f.m ? maxd : 0 } };
   return g;
 }
 function shapeKey(it){
   if (it.k === 'ink') return 'i' + it.c + it.pts.length;
   if (it.k === 'text') return 't' + it.c + it.s;
-  if (it.k === 'paper') return 'p' + (it.c || 0) + (it.cp ? 'c' : '') + JSON.stringify(it.folds);
+  if (it.k === 'paper') return 'p' + (it.c || 0) + (it.cp ? 'c' : '') + JSON.stringify(it.folds) + JSON.stringify(it.marks || []);
   return it.k === 'solid' ? it.s + '|' + it.bottom + '|' + (it.t || 0).toFixed(3) : 'b' + it.t + (it.o || 0) + (it.sw ? 1 : 0) + (it.neg ? 1 : 0);
 }
 function itemName(it){
   if (it.k === 'solid') return solidName(it);
-  if (it.k === 'paper') return it.cp ? 'Crease pattern' : it.folds.length ? `Folded paper (${it.folds.filter(f => !f.f).length} fold${it.folds.filter(f => !f.f).length === 1 ? '' : 's'})` : 'Square paper';
+  if (it.k === 'paper') return it.cp ? 'Crease pattern' : !it.folds.length && it.marks ? 'Paper with creases' : it.folds.length ? `Folded paper (${it.folds.filter(f => !f.f).length} fold${it.folds.filter(f => !f.f).length === 1 ? '' : 's'})` : 'Square paper';
   return (it.neg ? '−' : '') + AB[it.t].t;
 }
 function disposeObj(g){
@@ -698,7 +719,7 @@ function sync(){
     if (g && g.userData.key !== shapeKey(it) && !(g.userData.anim && g.userData.target === shapeKey(it))){
       // a paper with one more fold than before folds over in front of you (yours or your partner's)
       const prev = g.userData.folds, last = it.k === 'paper' && it.folds[it.folds.length - 1];
-      const canAnim = it.k === 'paper' && prev && !it.cp && !g.userData.cp && g.userData.c === (it.c || 0) && last && !last.f
+      const canAnim = it.k === 'paper' && prev && !it.cp && !g.userData.cp && g.userData.c === (it.c || 0) && last && !last.f && g.userData.marks === JSON.stringify(it.marks || [])
         && it.folds.length === prev.length + 1 && JSON.stringify(prev) === JSON.stringify(it.folds.slice(0, -1));
       disposeObj(g); g = null;
       if (canAnim){ g = buildPaperAnim(it, prev); objs[it.id] = g; scene.add(g); }
@@ -836,7 +857,7 @@ let TOOL = 'move', penC = Math.round(num(ls.get('l3d-pen'), 0, 0, PEN_COLS.lengt
 const inkMats = new Set();
 const TOOL_CURSOR = { move:'', hand:'grab', pen:'crosshair', text:'text', erase:'cell' };
 function setTool(t){
-  TOOL = t; MARK = null; hoverDot.visible = false;
+  TOOL = t; cameraButtons(t === 'hand'); MARK = null; hoverDot.visible = false;
   document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t));
   $('#penCols').hidden = !(t === 'pen' || t === 'text');
   canvas.style.cursor = TOOL_CURSOR[t];
@@ -1027,7 +1048,15 @@ function clean(o){
       const d = [num(f.d[0], 0, -1, 1), num(f.d[1], 0, -1, 1)]; if (Math.hypot(d[0], d[1]) < 1e-6) continue;
       it.folds.push({ p:[num(f.p[0], 0, -3, 3), num(f.p[1], 0, -3, 3)], d, s:f.s < 0 ? -1 : 1, m:f.m ? 1 : 0 });
     }
-    if (o.cp && it.folds.length) it.cp = true;
+    if (Array.isArray(o.marks)){
+      const mk = [];
+      for (const c of o.marks.slice(0, 300)){
+        if (!c || !Array.isArray(c.a) || !Array.isArray(c.b)) continue;
+        mk.push({ a:[num(c.a[0], 0, -1, 1), num(c.a[1], 0, -1, 1)], b:[num(c.b[0], 0, -1, 1), num(c.b[1], 0, -1, 1)], m:c.m ? 1 : 0 });
+      }
+      if (mk.length) it.marks = mk;
+    }
+    if (o.cp && (it.folds.length || it.marks)) it.cp = true;
     return it;
   }
   if (o.k === 'block'){
@@ -1230,9 +1259,9 @@ function updateBar(){
     } else if (!it.cp){
       h += `<div class="acts"><span class="acts-lbl">Mark a fold line:</span>${abtn('mk-line','line','Through 2 points')}${abtn('mk-pp','pp','Point onto point')}${abtn('mk-bis','bis','Angle bisector')}${abtn('mk-hv','hv','Vertical midline')}${abtn('mk-hh','hh','Horizontal midline')}</div>`;
     }
-    h += `<div class="acts">${it.cp ? '' : abtn('over','over','Turn over')}${it.folds.length ? abtn('cp','cp', it.cp ? 'Fold it back' : 'Crease pattern') + abtn('open','open','Unfold all') : ''}${abtn('colour','colour','Colour')}${abtn('turn','turn','Turn')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
+    h += `<div class="acts">${it.cp ? '' : abtn('over','over','Turn over')}${it.folds.length ? abtn('cp','cp', it.cp ? 'Fold it back' : 'Crease pattern') + abtn('flat','open','Open flat (keep creases)') : ''}${it.folds.length || it.marks ? abtn('fresh','cancel','Start over') : ''}${abtn('colour','colour','Colour')}${abtn('turn','turn','Turn')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
     if (S.values) h += `<div class="info">${infoText(it)}</div>`;
-    bar.innerHTML = h; bar.hidden = false; return;
+    bar.innerHTML = h; bar.hidden = false; placeBar(); return;
   }
   if (it.k === 'solid'){
     h += `<label class="slider">Unfold <input type="range" min="0" max="100" step="1" value="${Math.round((it.u || 0)*100)}" data-slide="u" aria-label="Unfold into a net"><output>${Math.round((it.u || 0)*100)}%</output></label>`;
@@ -1243,14 +1272,15 @@ function updateBar(){
     h += `<div class="acts">${abtn('flip','flip','Flip')}${abtn('turn','turn','Turn')}${abtn('tip','tip','Tip over')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
   }
   if (S.values) h += `<div class="info">${infoText(it)}</div>`;
-  bar.innerHTML = h; bar.hidden = false;
+  bar.innerHTML = h; bar.hidden = false; placeBar();
 }
 function infoText(it){
   if (!S.values) return '';
   if (it.k === 'block') return 'Value: ' + (it.neg ? '−' : '') + AB[it.t].t;
   if (it.k === 'paper'){
     const st = paperState(it.folds), n = it.folds.filter(f => !f.f).length, layers = new Set(st.facets.map(f => f.layer)).size;
-    if (it.cp){ const v = st.creases.filter(c => !c.m).length, m = st.creases.length - v; return `Seen from the coloured side: <b style="color:#1d4ed8">valley creases</b> dashed blue (${v}), <b style="color:#dc2626">mountain creases</b> long-dashed red (${m}).`; }
+    if (it.cp){ const all = [...(it.marks || []), ...st.creases], v = all.filter(c => !c.m).length, m = all.length - v; return `Seen from the coloured side: <b style="color:#1d4ed8">valley creases</b> dashed blue (${v}), <b style="color:#dc2626">mountain creases</b> long-dashed red (${m}).`; }
+    if (!n && it.marks) return `Opened flat with ${it.marks.length} crease${it.marks.length === 1 ? '' : 's'}. New fold lines snap to where creases cross and to their ends.`;
     if (!n) return 'A square: 4 equal sides (side = 1) and 4 right angles.';
     return `Folds <b>${n}</b> · Layers <b>${layers}</b> · Flat pieces <b>${st.facets.length}</b>`;
   }
@@ -1261,6 +1291,27 @@ function infoText(it){
   }
   return `Faces <b>${sd.F}</b> · Edges <b>${sd.E}</b> · Vertices <b>${sd.Vn}</b> &nbsp;→&nbsp; F + V − E = ${sd.F} + ${sd.Vn} − ${sd.E} = <b>${sd.F + sd.Vn - sd.E}</b>`;
 }
+// the panel can be dragged by its title to anywhere in the world view; the place is remembered
+let barPos = null;
+try { const p = JSON.parse(ls.get('l3d-barpos') || 'null'); if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) barPos = p; } catch(e){}
+function placeBar(){
+  if (!barPos) return;
+  const s = stage.getBoundingClientRect(), w = bar.offsetWidth || 300, h = bar.offsetHeight || 100;
+  const x = Math.max(0, Math.min(s.width - Math.min(w, s.width), barPos.x)), y = Math.max(0, Math.min(s.height - 40, barPos.y));
+  bar.style.left = x + 'px'; bar.style.top = y + 'px';
+}
+bar.addEventListener('pointerdown', e => {
+  const hd = e.target.closest('.abhead'); if (!hd || e.button > 0) return;
+  e.preventDefault();
+  const s = stage.getBoundingClientRect(), b = bar.getBoundingClientRect(), ox = e.clientX - b.left, oy = e.clientY - b.top;
+  bar.classList.add('dragging');
+  const mv = ev => { barPos = { x:ev.clientX - s.left - ox, y:ev.clientY - s.top - oy }; placeBar(); };
+  const up = () => { bar.classList.remove('dragging'); window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); if (barPos) ls.set('l3d-barpos', JSON.stringify(barPos)); };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+});
+// double-click the title to put the panel back in the corner
+bar.addEventListener('dblclick', e => { if (!e.target.closest('.abhead')) return; barPos = null; ls.set('l3d-barpos', 'null'); bar.style.left = bar.style.top = ''; });
+new ResizeObserver(placeBar).observe(stage);
 let slidePre = null;
 bar.addEventListener('input', e => {
   const r = e.target.closest('[data-slide]'); if (!r) return;
@@ -1291,7 +1342,14 @@ bar.addEventListener('click', e => {
       MARK = null; put([{ ...it, folds:[...it.folds, f] }]);
     }
     else if (a === 'over') put([{ ...it, folds:[...it.folds, { f:1 }] }]);
-    else if (a === 'open'){ const n = { ...it, folds:[] }; delete n.cp; put([n]); }
+    else if (a === 'fresh'){ const n = { ...it, folds:[] }; delete n.cp; delete n.marks; MARK = null; put([n]); }
+    else if (a === 'flat'){
+      // open the paper flat, keeping every crease so new folds can start from them
+      const st = paperState(it.folds), all = [], key = c => [c.a, c.b].map(p => p.map(v => Math.round(v*1e4)).join(',')).sort().join('|');
+      const seen = new Set();
+      for (const c of [...(it.marks || []), ...st.creases]){ const k = key(c); if (seen.has(k)) continue; seen.add(k); all.push({ a:c.a.map(r6), b:c.b.map(r6), m:c.m }); }
+      const n = { ...it, folds:[], marks:all.slice(0, 300) }; delete n.cp; MARK = null; put([n]);
+    }
     else if (a === 'cp'){ const n = { ...it }; if (n.cp) delete n.cp; else n.cp = true; MARK = null; put([n]); }
     else if (a === 'colour') put([{ ...it, c:((it.c || 0) + 1) % PAPER_COLS.length }]);
     else if (a === 'dup'){
@@ -1342,7 +1400,7 @@ $('#clearBtn').onclick = () => openDlg(`<h2>Clear the world?</h2><p>This removes
   () => act(() => drop(Object.keys(S.items))));
 $('#helpBtn').onclick = () => openDlg(`<h2>How to use Live 3D</h2><div class="help"><ul>
   <li><b>Add pieces:</b> drag them from the left into the world, or click one.</li>
-  <li><b>Look around:</b> drag empty space to spin, right-drag (or two fingers) to slide, scroll or pinch to zoom. Use Home, Front, Top, Side and Fit on the right.</li>
+  <li><b>Look around:</b> with Move, drag empty space to slide the whole world and right-drag (or two fingers) to spin it. With the Hand, any drag spins it. Scroll or pinch to zoom. Use Home, Front, Top, Side and Fit on the right.</li>
   <li><b>Move a piece:</b> drag it along the floor. Blocks stack on top of other blocks. Drag a piece back to the left to remove it.</li>
   <li><b>Nets:</b> select a solid and move <b>Unfold</b> to open it flat into its net. <b>Next face down</b> stands it on another face, which gives a different net.</li>
   <li><b>Truncate:</b> cut off the corners of a polyhedron (or the tip of a cone). Truncated solids unfold too.</li>
