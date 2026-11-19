@@ -86,13 +86,14 @@ main{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:0}
 .act:hover{background:var(--chip-hover)}
 .act svg{width:18px;height:18px}
 .act.danger{color:var(--danger)}
+.act.suggest{background:var(--chip);box-shadow:inset 0 0 0 2px var(--accent);color:var(--accent)}
 .acts-lbl{font-size:12px;font-weight:700;color:var(--muted);align-self:center;padding:0 4px}
 .info.mark{text-align:left;line-height:1.45}
 .slider{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:0 6px}
 .slider input{flex:1;min-width:140px;accent-color:var(--accent)}
 .slider output{min-width:38px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
 .info{font-size:13px;text-align:center;border-top:1px solid var(--line);padding-top:6px;font-variant-numeric:tabular-nums}
-#world{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px 10px;font-size:13px;font-weight:600}
+#world{position:absolute;left:50%;transform:translateX(-50%);top:14px;max-width:calc(100% - 420px);text-align:center;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px 10px;font-size:13px;font-weight:600}
 #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;font-weight:700;color:#475569;background:#eef3f8;z-index:6;text-align:center;padding:20px}
 
 dialog{border:0;border-radius:16px;padding:0;background:var(--panel);color:var(--text);box-shadow:var(--shadow);width:min(540px,calc(100% - 32px))}
@@ -384,6 +385,55 @@ function polyStr(list){
   for (const t of TERM_ORDER){ const v = co[t]; if (!v) continue; const mag = Math.abs(v), body = t === '1' ? String(mag) : (mag === 1 ? t : mag + t); e += e ? (v < 0 ? ' − ' : ' + ') + body : (v < 0 ? '−' : '') + body; }
   return e || '0';
 }
+
+/* ---------- Soma cube: 7 pieces made of unit cubes (27 cubes in all) that fit together into a 3 × 3 × 3 cube ---------- */
+const SU = 0.8;   // world size of one cube
+const SOMA = [
+  { n:'V', c:'#E4572E', cells:[[0,0,0],[1,0,0],[0,0,1]] },
+  { n:'L', c:'#F39C33', cells:[[0,0,0],[1,0,0],[2,0,0],[0,0,1]] },
+  { n:'T', c:'#F7C744', cells:[[0,0,0],[1,0,0],[2,0,0],[1,0,1]] },
+  { n:'Z', c:'#62BF84', cells:[[0,0,0],[1,0,0],[1,0,1],[2,0,1]] },
+  { n:'A', c:'#4F95DB', cells:[[0,0,0],[1,0,0],[0,0,1],[1,1,0]] },
+  { n:'B', c:'#9B6BD9', cells:[[0,0,0],[1,0,0],[0,0,1],[0,1,1]] },
+  { n:'P', c:'#E7609E', cells:[[0,0,0],[1,0,0],[0,0,1],[0,1,0]] }
+];
+// the 12 pentominoes: 5 cubes each, one cube thick (60 cubes in all: they fill boxes such as 3 × 4 × 5, 2 × 5 × 6 and 2 × 3 × 10)
+const PENT = [
+  ['F','#E4572E',[[1,0],[2,0],[0,1],[1,1],[1,2]]], ['I','#F39C33',[[0,0],[1,0],[2,0],[3,0],[4,0]]],
+  ['L','#F7C744',[[0,0],[0,1],[0,2],[0,3],[1,3]]], ['N','#9CCC65',[[1,0],[1,1],[1,2],[0,2],[0,3]]],
+  ['P','#62BF84',[[0,0],[1,0],[0,1],[1,1],[0,2]]], ['T','#26A69A',[[0,0],[1,0],[2,0],[1,1],[1,2]]],
+  ['U','#2DB3C9',[[0,0],[2,0],[0,1],[1,1],[2,1]]], ['V','#4F95DB',[[0,0],[0,1],[0,2],[1,2],[2,2]]],
+  ['W','#5C6BC0',[[0,0],[0,1],[1,1],[1,2],[2,2]]], ['X','#9B6BD9',[[1,0],[0,1],[1,1],[2,1],[1,2]]],
+  ['Y','#E7609E',[[1,0],[0,1],[1,1],[1,2],[1,3]]], ['Z','#8D6E63',[[0,0],[1,0],[1,1],[1,2],[2,2]]]
+].map(([n, c, q]) => ({ n, c, cells:q.map(([a, b]) => [a, 0, b]) }));
+const PSETS = { s:{ name:'Soma piece', pieces:SOMA }, p:{ name:'Pentomino', pieces:PENT } };
+const pieceOf = it => PSETS[it.set || 's'].pieces[it.p];
+const SOMA_ONE = '#D9A066', ID3 = [1,0,0, 0,1,0, 0,0,1];
+const m3 = (A, B) => { const r = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r.push(A[i*3]*B[j] + A[i*3 + 1]*B[3 + j] + A[i*3 + 2]*B[6 + j]); return r; };
+const ROT = { y:[0,0,1, 0,1,0, -1,0,0], x:[1,0,0, 0,0,-1, 0,1,0], z:[0,-1,0, 1,0,0, 0,0,1] };   // quarter turns
+// the cubes of a piece after its turn, moved so the lowest corner is at 0, 0, 0
+function somaCells(it){
+  const m = it.m || ID3, c = pieceOf(it).cells.map(v => [m[0]*v[0] + m[1]*v[1] + m[2]*v[2], m[3]*v[0] + m[4]*v[1] + m[5]*v[2], m[6]*v[0] + m[7]*v[1] + m[8]*v[2]]);
+  const mn = [0, 1, 2].map(k => Math.min(...c.map(v => v[k])));
+  return c.map(v => [v[0] - mn[0], v[1] - mn[1], v[2] - mn[2]]);
+}
+// a piece drops onto the floor or onto the pieces under it
+function somaY(it, skip){
+  const tops = new Map(), cells = somaCells(it); let y = 0;
+  for (const o of Object.values(S.items)){
+    if (o.k !== 'soma' || o.id === it.id || (skip && skip.has(o.id))) continue;
+    for (const c of somaCells(o)){ const key = (o.x + c[0]) + ',' + (o.z + c[2]); tops.set(key, Math.max(tops.get(key) || 0, o.y + c[1] + 1)); }
+  }
+  for (const c of cells) y = Math.max(y, (tops.get((it.x + c[0]) + ',' + (it.z + c[2])) || 0) - c[1]);
+  return y;
+}
+const validRot = m => {
+  if (!Array.isArray(m) || m.length !== 9 || !m.every(v => v === -1 || v === 0 || v === 1)) return false;
+  for (let i = 0; i < 3; i++){ if (m.slice(i*3, i*3 + 3).filter(v => v).length !== 1) return false; if ([m[i], m[3 + i], m[6 + i]].filter(v => v).length !== 1) return false; }
+  const det = m[0]*(m[4]*m[8] - m[5]*m[7]) - m[1]*(m[3]*m[8] - m[5]*m[6]) + m[2]*(m[3]*m[7] - m[4]*m[6]);
+  return det === 1;
+};
+let somaOne = ls.get('l3d-somaone') === '1';
 
 /* ---------- origami paper ----------
    The paper is a list of flat pieces (facets). Each facet keeps its shape on the original square (side 1, centred at 0)
@@ -697,7 +747,21 @@ function buildPaperAnim(it, prevFolds){
                  anim:{ t0:performance.now(), sub, a, axis, sign:f.m ? -up : up, lift:f.m ? maxd : 0 } };
   return g;
 }
+function buildSoma(it){
+  const g = new THREE.Group(), col = somaOne ? SOMA_ONE : pieceOf(it).c;
+  const geo = new THREE.BoxGeometry(SU, SU, SU), edges = new THREE.EdgesGeometry(geo);
+  for (const c of somaCells(it)){
+    const mesh = new THREE.Mesh(geo.clone(), new THREE.MeshStandardMaterial({ color:col, roughness:.6, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1 }));
+    mesh.position.set((c[0] + .5)*SU, (c[1] + .5)*SU, (c[2] + .5)*SU); mesh.userData.id = it.id; pickables.push(mesh);
+    const ln = new THREE.LineSegments(edges.clone(), new THREE.LineBasicMaterial({ color:new THREE.Color(col).multiplyScalar(.45) })); ln.position.copy(mesh.position);
+    g.add(mesh, ln);
+  }
+  geo.dispose(); edges.dispose();
+  g.userData = { key:shapeKey(it) };
+  return g;
+}
 function shapeKey(it){
+  if (it.k === 'soma') return 's' + (it.set || 's') + it.p + (it.m || ID3).join('') + (somaOne ? 1 : 0);
   if (it.k === 'ink') return 'i' + it.c + it.pts.length;
   if (it.k === 'text') return 't' + it.c + it.s;
   if (it.k === 'paper') return 'p' + (it.c || 0) + (it.cp ? 'c' : '') + JSON.stringify(it.folds) + JSON.stringify(it.marks || []);
@@ -705,6 +769,7 @@ function shapeKey(it){
 }
 function itemName(it){
   if (it.k === 'solid') return solidName(it);
+  if (it.k === 'soma') return PSETS[it.set || 's'].name + ' ' + pieceOf(it).n;
   if (it.k === 'paper') return it.cp ? 'Crease pattern' : !it.folds.length && it.marks ? 'Paper with creases' : it.folds.length ? `Folded paper (${it.folds.filter(f => !f.f).length} fold${it.folds.filter(f => !f.f).length === 1 ? '' : 's'})` : 'Square paper';
   return (it.neg ? '−' : '') + AB[it.t].t;
 }
@@ -724,10 +789,11 @@ function sync(){
       disposeObj(g); g = null;
       if (canAnim){ g = buildPaperAnim(it, prev); objs[it.id] = g; scene.add(g); }
     }
-    if (!g){ g = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : it.k === 'ink' ? buildInk(it) : it.k === 'text' ? buildNote(it) : buildBlock(it); objs[it.id] = g; scene.add(g); }
+    if (!g){ g = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : it.k === 'ink' ? buildInk(it) : it.k === 'text' ? buildNote(it) : it.k === 'soma' ? buildSoma(it) : buildBlock(it); objs[it.id] = g; scene.add(g); }
     if (it.k === 'ink') continue;
     if (it.k === 'text'){ g.position.set(it.x, it.y, it.z); continue; }
-    if (it.k === 'paper'){ g.position.set(it.x, 0, it.z); g.rotation.y = it.ry || 0; }
+    if (it.k === 'soma') g.position.set(it.x*SU, it.y*SU, it.z*SU);
+    else if (it.k === 'paper'){ g.position.set(it.x, 0, it.z); g.rotation.y = it.ry || 0; }
     else if (it.k === 'solid'){
       g.position.set(it.x, 0, it.z); g.rotation.y = it.ry || 0;
       if (Math.abs((g.userData.u ?? -1) - (it.u || 0)) > 1e-4) applyUnfold(g, it.u || 0);
@@ -744,11 +810,30 @@ function sync(){
 
 /* ---------- marking a fold line on the paper ---------- */
 let MARK = null, markObj = null, markLabels = [];
-const NEED = { line:2, pp:2, bis:3, hv:0, hh:0 };
+const NEED = { line:2, pp:2, bis:3, hv:0, hh:0, crease:0 };
+// where the pointer is on a paper, in the paper's flat frame (side 1)
+function paperUV(e, id){
+  if (!objs[id]) return null;
+  aim(e);
+  const h = ray.intersectObjects(pickables, false).find(x => x.object.userData.id === id); if (!h) return null;
+  const l = objs[id].worldToLocal(h.point.clone());
+  return [l.x/PS, -l.z/PS];
+}
+// the kept crease nearest to a point on the paper (as it lies now), if one is close enough to click
+function creaseAt(it, uv){
+  if (!it || it.k !== 'paper' || !it.marks || it.cp || !uv) return null;
+  const st = paperState(it.folds); let best = null, bd = 0.03;
+  for (const fc of st.facets) for (const s of markSegs(fc, it.marks)){
+    const d = P2.sub(s.b, s.a), L2 = P2.dot(d, d) || 1, t = Math.max(0, Math.min(1, P2.dot(P2.sub(uv, s.a), d)/L2));
+    const dist = P2.len(P2.sub(P2.add(s.a, P2.mul(d, t)), uv));
+    if (dist < bd){ bd = dist; best = s; }
+  }
+  return best;
+}
 const markReady = () => MARK && MARK.pts.length >= NEED[MARK.mode];
-function startMark(it, mode){
+function startMark(it, mode, seg){
   const st = paperState(it.folds);
-  MARK = { id:it.id, mode, pts:[], snaps:snapsOf(st, it.marks), st, fkey:JSON.stringify(it.folds), fold:null, ok:false, err:'' };
+  MARK = { id:it.id, mode, pts:[], snaps:snapsOf(st, it.marks), st, fkey:JSON.stringify(it.folds), fold:null, ok:false, err:'', seg };
   if (!NEED[mode]) computeMark();
 }
 function snapPt(u, v){
@@ -778,6 +863,8 @@ function computeMark(){
     if (m.angle < 0.5){ m.err = 'A and C are on the same ray, so there is no angle to bisect. Pick C again.'; m.pts.pop(); return; }
     let dir = P2.add(e1, e2); if (P2.len(dir) < 1e-6) dir = [-e1[1], e1[0]];
     p = P[1]; d = P2.norm(dir); s = Math.sign(sideOf(p, d, P[0]));
+  } else if (m.mode === 'crease' && m.seg){
+    p = m.seg.a; d = P2.norm(P2.sub(m.seg.b, m.seg.a));
   } else if (m.mode === 'hv' || m.mode === 'hh'){
     const b = paperBox(st); p = [b.cx, b.cy]; d = m.mode === 'hv' ? [0, 1] : [1, 0];
   } else return;
@@ -804,7 +891,8 @@ function markInfo(){
     line:`Fold line through A and B (AB = ${fmtN(ab)}).`,
     pp:`Fold line: the <b>perpendicular bisector</b> of AB, so A lands on B (AB = ${fmtN(ab)}).`,
     bis:`Fold line: the <b>angle bisector</b> of ∠ABC. m∠ABC = ${fmtDeg(m.angle || 0)}, so each half measures ${fmtDeg((m.angle || 0)/2)}.`,
-    hv:'Fold line: the vertical <b>midline</b> of the paper.', hh:'Fold line: the horizontal <b>midline</b> of the paper.'
+    hv:'Fold line: the vertical <b>midline</b> of the paper.', hh:'Fold line: the horizontal <b>midline</b> of the paper.',
+    crease:m.seg ? `Fold line: the crease you clicked. Seen from above it is a <b style="color:${m.seg.m ? '#dc2626' : '#1d4ed8'}">${m.seg.m ? 'mountain' : 'valley'} crease</b>, so the matching fold is <b>${m.seg.m ? 'Mountain' : 'Valley'} fold</b> (highlighted).` : ''
   }[m.mode];
   if (m.fold){
     let ang = Math.atan2(m.fold.d[1], m.fold.d[0])*180/Math.PI; ang = ((ang % 180) + 180) % 180; if (ang > 90) ang = 180 - ang;
@@ -966,7 +1054,11 @@ function hoverMark(e){
   const hp = want ? paperPointAt(e) : null;
   hoverDot.visible = !!hp; canvas.style.cursor = hp ? 'crosshair' : TOOL_CURSOR[TOOL];
   if (hp && hp.kind === 'intersection') hp.kind = 'corner';   // same colour as a vertex
-  if (!hp) return;
+  if (!hp){
+    // over a kept crease: show that it can be clicked
+    if (TOOL === 'move' && !(MARK && !markReady())){ const id = pickAt(e), it = id && S.items[id]; if (it && it.k === 'paper' && it.marks && creaseAt(it, paperUV(e, id))) canvas.style.cursor = 'pointer'; }
+    return;
+  }
   const g = objs[MARK.id]; hoverDot.position.copy(g.localToWorld(new THREE.Vector3(hp.u*PS, g.userData.topY + .014, -hp.v*PS)));
   hoverDot.rotation.set(-Math.PI/2, 0, 0);
   hoverDot.material.color.set(hp.kind === 'corner' ? 0xdb2777 : hp.kind === 'midpoint' ? 0x059669 : 0x2563eb);
@@ -987,10 +1079,31 @@ function updateLabels(){
     el.style.left = ((p.x + 1)/2*r.width) + 'px'; el.style.top = ((1 - p.y)/2*r.height) + 'px';
   }
 }
+// a full set of Soma pieces or pentominoes that fills a box with no gaps
+function setBox(set){
+  const list = Object.values(S.items).filter(i => i.k === 'soma' && (i.set || 's') === set), need = PSETS[set].pieces.length;
+  if (list.length !== need || new Set(list.map(i => i.p)).size !== need) return null;
+  const cells = new Set(), mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const it of list) for (const c of somaCells(it)){
+    const q = [it.x + c[0], it.y + c[1], it.z + c[2]]; cells.add(q.join());
+    for (let k = 0; k < 3; k++){ mn[k] = Math.min(mn[k], q[k]); mx[k] = Math.max(mx[k], q[k]); }
+  }
+  const dims = mx.map((v, k) => v - mn[k] + 1), total = list.reduce((s, i) => s + pieceOf(i).cells.length, 0);
+  return cells.size === total && dims[0]*dims[1]*dims[2] === total ? dims.sort((a, b) => a - b) : null;
+}
+const doneBox = {};
 function updateWorld(){
-  const blocks = Object.values(S.items).filter(i => i.k === 'block'), el = $('#world');
-  el.hidden = !(S.values && blocks.length);
-  if (!el.hidden) el.textContent = 'Blocks in the world: ' + polyStr(blocks);
+  const blocks = Object.values(S.items).filter(i => i.k === 'block'), el = $('#world'), msgs = [];
+  if (S.values && blocks.length) msgs.push('Blocks in the world: ' + polyStr(blocks));
+  for (const set of ['s', 'p']){
+    const box = setBox(set), key = box ? box.join('×') : '';
+    if (box){
+      const m = set === 's' ? `Soma cube built: ${box.join(' × ')} = 27 cubes` : `Pentomino box built: ${box.join(' × ')} = 60 cubes`;
+      msgs.push(m); if (doneBox[set] !== key) toast(m + '!');
+    }
+    doneBox[set] = key;
+  }
+  el.hidden = !msgs.length; el.textContent = msgs.join(' · ');
 }
 
 /* ---------- changes, undo, saving ---------- */
@@ -1028,6 +1141,11 @@ function clean(o){
     it.bottom = Math.round(num(o.bottom, b.bottom, 0, b.planes.length - 1));
     it.t = num(o.t, 0, 0, truncMax(o.s)); it.u = num(o.u, 0, 0, 1);
     return it;
+  }
+  if (o.k === 'soma'){
+    const set = o.set === 'p' ? 'p' : 's', n = PSETS[set].pieces.length;
+    return { id, k:'soma', set, p:Math.round(num(o.p, 0, 0, n - 1)), m:validRot(o.m) ? o.m.slice() : ID3.slice(),
+             x:Math.round(num(o.x, 0, -30, 30)), y:Math.round(num(o.y, 0, 0, 40)), z:Math.round(num(o.z, 0, -30, 30)) };
   }
   if (o.k === 'ink'){
     if (!Array.isArray(o.pts)) return null;
@@ -1092,6 +1210,12 @@ function newItem(pid, at){
     return it;
   }
   if (pid === 'paper') return { id, k:'paper', x:snap(at.x), z:snap(at.z), ry:0, c:0, folds:[] };
+  if (pid.startsWith('pc-')){
+    const [, set, p] = pid.split('-'), it = { id, k:'soma', set, p:+p, m:ID3.slice(), x:0, y:0, z:0 }, cells = somaCells(it);
+    const w = Math.max(...cells.map(c => c[0])) + 1, d = Math.max(...cells.map(c => c[2])) + 1;
+    it.x = Math.round(at.x/SU - w/2); it.z = Math.round(at.z/SU - d/2); it.y = somaY(it);
+    return it;
+  }
   return { id, k:'solid', s:pid, x:snap(at.x), z:snap(at.z), ry:0, bottom:baseOf(pid).bottom, t:0, u:0 };
 }
 const overTray = e => { const r = $('#tray').getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
@@ -1112,8 +1236,8 @@ canvas.addEventListener('pointerdown', e => {
   // grabbing a piece: the camera holds still while it moves
   controls.enabled = false;
   S.sel = id; dirty();
-  const it = S.items[id], y = it.k === 'block' ? it.y : 0, p = floorAt(e, y);
-  D = { mode:'move', id, pre:begin(), start:p, ox:it.x, oz:it.z, moved:false, sx:e.clientX, sy:e.clientY };
+  const it = S.items[id], y = it.k === 'block' ? it.y : it.k === 'soma' ? it.y*SU : 0, p = floorAt(e, y);
+  D = { mode:'move', id, pre:begin(), start:p, ox:it.x, oz:it.z, moved:false, sx:e.clientX, sy:e.clientY, uv:it.k === 'paper' ? paperUV(e, id) : null };
 }, { capture:true });
 window.addEventListener('pointermove', e => {
   if (!D){ if (toolMove(e)) return; if (e.target === canvas) hoverMark(e); return; }
@@ -1122,15 +1246,20 @@ window.addEventListener('pointermove', e => {
       if (Math.hypot(e.clientX - D.sx, e.clientY - D.sy) < 6) return;
       const p = floorAt(e); if (!p) return;
       const it = newItem(D.pid, p); put([it]); S.sel = it.id; D.made = it.id; controls.enabled = false;
-      D.mode = 'move'; D.id = it.id; D.start = floorAt(e, it.k === 'block' ? it.y : 0); D.ox = it.x; D.oz = it.z; D.moved = true; D.fromTray = true;
+      D.mode = 'move'; D.id = it.id; D.start = floorAt(e, it.k === 'block' ? it.y : it.k === 'soma' ? it.y*SU : 0); D.ox = it.x; D.oz = it.z; D.moved = true; D.fromTray = true;
     }
     return;
   }
   if (D.mode !== 'move') return;
   const it = S.items[D.id]; if (!it || !D.start) return;
-  const p = floorAt(e, it.k === 'block' ? it.y : 0); if (!p) return;
+  const p = floorAt(e, it.k === 'soma' ? D.start.y : it.k === 'block' ? it.y : 0); if (!p) return;
   if (!D.moved && Math.hypot(e.clientX - D.sx, e.clientY - D.sy) < 4) return;
   D.moved = true;
+  if (it.k === 'soma'){
+    // whole cubes only; the piece drops onto whatever is under it
+    it.x = D.ox + Math.round((p.x - D.start.x)/SU); it.z = D.oz + Math.round((p.z - D.start.z)/SU); it.y = somaY(it);
+    $('#tray').classList.toggle('drop', overTray(e)); dirty(); sendLater(it.id); return;
+  }
   it.x = snap(D.ox + p.x - D.start.x); it.z = snap(D.oz + p.z - D.start.z);
   if (it.k === 'block'){ const ny = stackY(it, it.x, it.z); if (ny !== it.y){ D.start.y = ny; it.y = ny; } }
   $('#tray').classList.toggle('drop', overTray(e));
@@ -1148,7 +1277,12 @@ function endDrag(e){
     put([it]); S.sel = it.id; commit(d.pre); return;
   }
   if (d.mode === 'move'){
-    if (!d.moved) return;
+    if (!d.moved){
+      // a click (not a drag) on a kept crease makes it the fold line
+      const it = S.items[d.id], s = creaseAt(it, d.uv);
+      if (s){ startMark(it, 'crease', s); dirty(); }
+      return;
+    }
     if (e && e.type === 'pointerup' && overTray(e)){ drop([d.id]); commit(d.pre); return; }
     pend.clear(); clearTimeout(pendT); pendT = 0;
     if (S.items[d.id]) put([S.items[d.id]]);
@@ -1165,18 +1299,21 @@ const GROUPS = [
   { id:'pyr',   name:'Pyramids',       tiles:['pyr3','pyr4','pyr5','pyr6'] },
   { id:'round', name:'Cone and cylinder', tiles:['cone','cyl'] },
   { id:'origami', name:'Origami', tiles:['paper'] },
+  { id:'soma', name:'Soma cube (7 pieces)', tiles:SOMA.map((_, i) => 'pc-s-' + i) },
+  { id:'pent', name:'3D pentominoes (12 pieces)', tiles:PENT.map((_, i) => 'pc-p-' + i) },
   { id:'blocks', name:'3D algebra blocks', tiles:Object.keys(AB).map(t => 'ab-' + t) }
 ];
-const tileName = pid => pid === 'paper' ? 'Square paper' : pid.startsWith('ab-') ? AB[pid.slice(3)].t : SHAPES[pid].name;
+const tileName = pid => pid.startsWith('pc-') ? (() => { const [, s, p] = pid.split('-'); return PSETS[s].pieces[+p].n; })() : pid === 'paper' ? 'Square paper' : pid.startsWith('ab-') ? AB[pid.slice(3)].t : SHAPES[pid].name;
 // small pictures of each piece, drawn once by a second, off-screen 3D renderer
 function thumbnails(){
   const size = 144, r2 = new THREE.WebGLRenderer({ antialias:true, alpha:true, preserveDrawingBuffer:true }); r2.setSize(size, size, false);
   const sc = new THREE.Scene(); sc.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 1.7)); const l = new THREE.DirectionalLight(0xffffff, 1.4); l.position.set(5, 9, 7); sc.add(l);
   const cam = new THREE.PerspectiveCamera(32, 1, 0.1, 100), out = {};
   for (const g of GROUPS) for (const pid of g.tiles){
-    const it = pid === 'paper' ? { id:'t', k:'paper', x:0, z:0, ry:0, c:0, folds:[] }
+    const it = pid.startsWith('pc-') ? { id:'t', k:'soma', set:pid.split('-')[1], p:+pid.split('-')[2], m:ID3.slice(), x:0, y:0, z:0 }
+      : pid === 'paper' ? { id:'t', k:'paper', x:0, z:0, ry:0, c:0, folds:[] }
       : pid.startsWith('ab-') ? { id:'t', k:'block', t:pid.slice(3), o:0, x:0, y:0, z:0 } : { id:'t', k:'solid', s:pid, x:0, z:0, ry:0, bottom:baseOf(pid).bottom, t:0, u:0 };
-    const obj = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : buildBlock(it);
+    const obj = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : it.k === 'soma' ? buildSoma(it) : buildBlock(it);
     if (it.k === 'block'){ const [w, d, h] = blockDims(it); obj.position.set(0, h/2, 0); }
     sc.add(obj);
     const box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), rad = box.getSize(new THREE.Vector3()).length()/2;
@@ -1231,14 +1368,15 @@ const ICON = {
   open:'<rect x="3.5" y="3.5" width="13" height="13" rx="1"/>',
   cp:'<rect x="3.5" y="3.5" width="13" height="13" rx="1"/><path d="M3.5 3.5l13 13M16.5 3.5l-13 13" stroke-dasharray="2 2"/>',
   colour:'<circle cx="10" cy="10" r="6.5"/><path d="M10 3.5a6.5 6.5 0 000 13z" fill="currentColor"/>',
-  cancel:'<path d="M5 5l10 10M15 5L5 15"/>'
+  cancel:'<path d="M5 5l10 10M15 5L5 15"/>',
+  roll:'<path d="M4 10a6 6 0 0110.5-4"/><path d="M14.8 3v3.2h-3.2"/><path d="M16 10a6 6 0 01-10.5 4"/><path d="M5.2 17v-3.2h3.2"/>'
 };
 const ico = n => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 const abtn = (a, icon, label, extra = '') => `<button type="button" class="act ${extra}" data-act="${a}" title="${label}">${ico(icon)}<span class="lbl">${label}</span></button>`;
 let barSig = '', barId = null;
 function updateBar(){
   const it = S.sel && S.items[S.sel];
-  if (!it || (it.k !== 'solid' && it.k !== 'block' && it.k !== 'paper')){ bar.hidden = true; barSig = ''; barId = null; return; }
+  if (!it || (it.k !== 'solid' && it.k !== 'block' && it.k !== 'paper' && it.k !== 'soma')){ bar.hidden = true; barSig = ''; barId = null; return; }
   const sig = JSON.stringify(it) + S.values + (MARK ? JSON.stringify([MARK.mode, MARK.pts, MARK.fold, MARK.err]) : '');
   if (sig === barSig) return;
   // keep a slider that is being dragged; only refresh its number
@@ -1251,10 +1389,16 @@ function updateBar(){
   }
   barSig = sig; barId = it.id;
   let h = `<div class="abhead">${esc(itemName(it))}</div>`;
+  if (it.k === 'soma'){
+    h += `<div class="acts">${abtn('sturn','turn','Turn')}${abtn('stip','tip','Tip forward')}${abtn('sroll','roll','Roll sideways')}${abtn('scol','colour', somaOne ? 'Separate colours' : 'One colour')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
+    if (S.values) h += `<div class="info">${infoText(it)}</div>`;
+    bar.innerHTML = h; bar.hidden = false; placeBar(); return;
+  }
   if (it.k === 'paper'){
     if (MARK && MARK.id === it.id){
       h += `<div class="info mark">${markInfo()}</div><div class="acts">`;
-      if (MARK.fold && MARK.ok) h += abtn('swap','swap','Fold the other side') + abtn('valley','valley','Valley fold') + abtn('mountain','mountain','Mountain fold');
+      const sug = MARK.mode === 'crease' && MARK.seg ? (MARK.seg.m ? 'mountain' : 'valley') : '';
+      if (MARK.fold && MARK.ok) h += abtn('swap','swap','Fold the other side') + abtn('valley','valley','Valley fold', sug === 'valley' ? 'suggest' : '') + abtn('mountain','mountain','Mountain fold', sug === 'mountain' ? 'suggest' : '');
       h += abtn('cancel','cancel','Cancel') + '</div>';
     } else if (!it.cp){
       h += `<div class="acts"><span class="acts-lbl">Mark a fold line:</span>${abtn('mk-line','line','Through 2 points')}${abtn('mk-pp','pp','Point onto point')}${abtn('mk-bis','bis','Angle bisector')}${abtn('mk-hv','hv','Vertical midline')}${abtn('mk-hh','hh','Horizontal midline')}</div>`;
@@ -1277,10 +1421,11 @@ function updateBar(){
 function infoText(it){
   if (!S.values) return '';
   if (it.k === 'block') return 'Value: ' + (it.neg ? '−' : '') + AB[it.t].t;
+  if (it.k === 'soma'){ const n = pieceOf(it).cells.length; return `${n} cubes · volume ${n} cubic units`; }
   if (it.k === 'paper'){
     const st = paperState(it.folds), n = it.folds.filter(f => !f.f).length, layers = new Set(st.facets.map(f => f.layer)).size;
     if (it.cp){ const all = [...(it.marks || []), ...st.creases], v = all.filter(c => !c.m).length, m = all.length - v; return `Seen from the coloured side: <b style="color:#1d4ed8">valley creases</b> dashed blue (${v}), <b style="color:#dc2626">mountain creases</b> long-dashed red (${m}).`; }
-    if (!n && it.marks) return `Opened flat with ${it.marks.length} crease${it.marks.length === 1 ? '' : 's'}. New fold lines snap to where creases cross and to their ends.`;
+    if (!n && it.marks) return `Opened flat with ${it.marks.length} crease${it.marks.length === 1 ? '' : 's'}. Click a crease to fold on it again. New fold lines snap to where creases cross and to their ends.`;
     if (!n) return 'A square: 4 equal sides (side = 1) and 4 right angles.';
     return `Folds <b>${n}</b> · Layers <b>${layers}</b> · Flat pieces <b>${st.facets.length}</b>`;
   }
@@ -1332,6 +1477,13 @@ bar.addEventListener('click', e => {
   // marking a fold line only changes this screen, not the shared world
   if (a.startsWith('mk-')){ startMark(it, a.slice(3)); barSig = ''; dirty(); return; }
   if (a === 'cancel'){ MARK = null; dirty(); return; }
+  if (a === 'scol'){   // one colour for every Soma and pentomino piece, or each piece its own colour (this screen only)
+    somaOne = !somaOne; ls.set('l3d-somaone', somaOne ? '1' : '0'); barSig = ''; buildTray(); dirty(); return;
+  }
+  if (a === 'sturn' || a === 'stip' || a === 'sroll'){
+    act(() => { const n = { ...it, m:m3(ROT[{ sturn:'y', stip:'x', sroll:'z' }[a]], it.m || ID3) }; n.y = somaY(n); put([n]); });
+    return;
+  }
   if (a === 'swap'){ if (MARK && MARK.fold){ MARK.fold.s *= -1; checkMark(); dirty(); } return; }
   const r6 = v => Math.round(v*1e6)/1e6;
   act(() => {
@@ -1355,6 +1507,7 @@ bar.addEventListener('click', e => {
     else if (a === 'dup'){
       const n = structuredClone(it); n.id = ME.id.slice(1, 5) + rid(); n.x = snap(it.x + (it.k === 'paper' ? 4.5 : 2.5));
       if (n.k === 'block') n.y = stackY(n, n.x, n.z);
+      if (n.k === 'soma'){ n.x = it.x + 4; n.y = somaY(n); }
       put([n]); S.sel = n.id;
     } else if (a === 'turn'){
       if (it.k !== 'block') put([{ ...it, ry:((it.ry || 0) + Math.PI/4) % (2*Math.PI) }]);
@@ -1405,7 +1558,8 @@ $('#helpBtn').onclick = () => openDlg(`<h2>How to use Live 3D</h2><div class="he
   <li><b>Nets:</b> select a solid and move <b>Unfold</b> to open it flat into its net. <b>Next face down</b> stands it on another face, which gives a different net.</li>
   <li><b>Truncate:</b> cut off the corners of a polyhedron (or the tip of a cone). Truncated solids unfold too.</li>
   <li><b>Values:</b> shows faces, edges and vertices of the selected solid, and checks F + V − E = 2. For blocks it shows the expression.</li>
-  <li><b>Origami:</b> select the square paper and mark a fold line: <b>Through 2 points</b>, <b>Point onto point</b> (the perpendicular bisector, so one point lands on the other), <b>Angle bisector</b> (click A, the vertex B, then C) or a <b>midline</b>. Points snap to vertices and midpoints. Then choose <b>Valley fold</b> (up and over toward you) or <b>Mountain fold</b> (under, away from you). <b>Crease pattern</b> opens the square to show every crease.</li>
+  <li><b>Origami:</b> select the square paper and mark a fold line: <b>Through 2 points</b>, <b>Point onto point</b> (the perpendicular bisector, so one point lands on the other), <b>Angle bisector</b> (click A, the vertex B, then C) or a <b>midline</b>. Points snap to vertices and midpoints. After <b>Open flat</b>, click any crease line to fold on it (the matching valley or mountain fold is highlighted). Then choose <b>Valley fold</b> (up and over toward you) or <b>Mountain fold</b> (under, away from you). <b>Crease pattern</b> opens the square to show every crease.</li>
+  <li><b>Soma cube and 3D pentominoes:</b> drag the pieces in; they snap to whole cubes and rest on whatever is under them. Turn, Tip forward and Roll sideways give every position. <b>One colour</b> / <b>Separate colours</b> switches all pieces. Build the 3 × 3 × 3 cube with the 7 Soma pieces, or a box (3 × 4 × 5, 2 × 5 × 6, 2 × 3 × 10) with the 12 pentominoes — a message tells you when it is complete.</li>
   <li><b>Tools:</b> Move (V) picks up pieces, Hand (H) only spins the camera, Pen (P) draws on pieces and the floor, Text (T) adds a note, Eraser (E) removes pen marks and notes.</li>
   <li><b>3D algebra blocks:</b> Flip for the negative side, Turn to swing it round, Tip over to stand it another way.</li>
   <li><b>Work together:</b> one person starts and gets a code; the partner types it. Each person moves their own camera; the pieces are shared.</li></ul></div>
