@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live 3D</title>
+<style>
+:root{
+  --bg:#eef1f5; --panel:#ffffff; --line:#d8dde5; --text:#1b2230; --muted:#5d6878;
+  --accent:#2563eb; --accent-ink:#ffffff; --chip:#f3f5f8; --chip-hover:#e8edf5;
+  --danger:#c62828; --shadow:0 1px 2px rgba(16,24,40,.06),0 6px 18px rgba(16,24,40,.10);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171c; --panel:#1c2027; --line:#2e343e; --text:#e7eaf0; --muted:#9aa4b2;
+    --accent:#6b98ff; --accent-ink:#0b1020; --chip:#252a33; --chip-hover:#2e3440; --danger:#f87171;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171c; --panel:#1c2027; --line:#2e343e; --text:#e7eaf0; --muted:#9aa4b2;
+  --accent:#6b98ff; --accent-ink:#0b1020; --chip:#252a33; --chip-hover:#2e3440; --danger:#f87171;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+svg{display:block}
+
+.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap;scrollbar-width:thin}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;margin-right:6px}
+.brand b{color:var(--accent)}
+.brand .logo{display:block;width:37px;height:32px;padding:2px 3px;background:#fff;border-radius:8px;box-sizing:content-box}
+.grp{display:flex;gap:2px;padding:2px;background:var(--chip);border-radius:10px}
+.spacer{flex:1}
+.btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid transparent;border-radius:8px;background:transparent;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--chip-hover)}
+.btn:focus-visible,.tile:focus-visible,.act:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.btn svg{width:18px;height:18px;flex:none}
+.btn.solo{border-color:var(--line);background:var(--panel)}
+.btn[aria-pressed="true"]{background:var(--panel);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.08);color:var(--accent)}
+.btn:disabled{opacity:.38;cursor:default;background:transparent}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.danger{color:var(--danger)}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor;flex:none}
+
+main{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:0}
+#tray{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:6px 10px 16px;scrollbar-width:thin}
+#tray.drop{box-shadow:inset 0 0 0 2px var(--danger)}
+#tray details{border-bottom:1px solid var(--line);padding:6px 0 8px}
+#tray summary{cursor:pointer;font-size:12px;font-weight:700;letter-spacing:.02em;color:var(--muted);padding:6px 2px;list-style:none;display:flex;align-items:center;gap:6px}
+#tray summary::-webkit-details-marker{display:none}
+#tray summary::before{content:"";width:6px;height:6px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s;margin:0 2px}
+#tray details[open] summary::before{transform:rotate(45deg)}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 2px 6px;border:1px solid transparent;border-radius:9px;background:var(--chip);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.15;min-width:0}
+.tile:hover{border-color:var(--accent)}
+.tile img{width:72px;height:72px;display:block}
+.tray-hint{font-size:12px;color:var(--muted);margin:8px 2px 0}
+
+#stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:#eef3f8}
+#view3d{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lab{position:absolute;transform:translate(-50%,-100%);background:rgba(255,255,255,.92);color:#1f2937;border:1px solid #cbd5e1;border-radius:7px;padding:2px 7px;font-size:12.5px;font-weight:700;white-space:nowrap}
+#views{position:absolute;right:14px;top:14px;z-index:5;display:flex;flex-direction:column;gap:6px}
+.vbtn{display:flex;align-items:center;justify-content:center;gap:6px;min-width:44px;height:36px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow);cursor:pointer;font-size:12.5px;font-weight:700}
+.vbtn:hover{background:var(--chip-hover)}
+.vbtn svg{width:18px;height:18px}
+#actionbar{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px 8px;max-width:calc(100% - 140px);display:flex;flex-direction:column;gap:6px}
+.abhead{font-weight:800;font-size:13.5px;text-align:center}
+.acts{display:flex;flex-wrap:wrap;gap:2px;justify-content:center}
+.act{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 9px;border:0;border-radius:8px;background:transparent;cursor:pointer;font-size:12.5px;font-weight:600}
+.act:hover{background:var(--chip-hover)}
+.act svg{width:18px;height:18px}
+.act.danger{color:var(--danger)}
+.slider{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:0 6px}
+.slider input{flex:1;min-width:140px;accent-color:var(--accent)}
+.slider output{min-width:38px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.info{font-size:13px;text-align:center;border-top:1px solid var(--line);padding-top:6px;font-variant-numeric:tabular-nums}
+#world{position:absolute;left:14px;bottom:14px;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px 10px;font-size:13px;font-weight:600}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;font-weight:700;color:#475569;background:#eef3f8;z-index:6;text-align:center;padding:20px}
+
+dialog{border:0;border-radius:16px;padding:0;background:var(--panel);color:var(--text);box-shadow:var(--shadow);width:min(540px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(10,15,25,.45)}
+#dlgForm{padding:22px}
+dialog h2{margin:0 0 6px;font-size:19px}
+dialog h3{margin:0 0 4px;font-size:14px}
+dialog p{margin:0 0 12px;color:var(--muted)}
+dialog label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+dialog input,dialog select{width:100%;height:38px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+dialog menu{display:flex;justify-content:flex-end;gap:8px;margin:18px 0 0;padding:0;flex-wrap:wrap}
+dialog .btn{border-color:var(--line)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.two section{background:var(--chip);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.two section p{margin:0;font-size:13px}
+.two .btn{justify-content:center;margin-top:auto}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.code{font:700 38px/1.1 ui-monospace,"Cascadia Mono",Consolas,monospace;letter-spacing:.14em;text-align:center;padding:14px;background:var(--chip);border-radius:12px;margin:8px 0 14px}
+.people{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+.person{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:var(--chip);font-size:13px;font-weight:600}
+.saves{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+.saveopt{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--chip);cursor:pointer}
+.saveopt:hover{border-color:var(--accent)}
+.saveopt span{font-size:12.5px;color:var(--muted)}
+.help li{margin:0 0 6px}.help ul{padding-left:18px;margin:0 0 8px}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;background:#111827;color:#fff;padding:10px 16px;border-radius:99px;font-size:13.5px;font-weight:600;transition:.2s;z-index:50;max-width:calc(100% - 32px);text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%)}
+@media (max-width:900px){.lbl{display:none}.btn{padding:0 8px}}
+@media (max-width:720px){
+  main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 168px}
+  #tray{order:2;border-right:0;border-top:1px solid var(--line)}
+  .tiles{grid-template-columns:repeat(4,1fr)}
+  .two,.saves{grid-template-columns:1fr}
+  #actionbar{max-width:calc(100% - 80px)}
+}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><img class="logo" src="data:image/png;base64,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" width="37" height="32" alt="Edutorium"><span>Live <b>3D</b></span></div>
+  <div class="grp">
+    <button class="btn" id="undoBtn" title="Undo (Ctrl+Z)" disabled><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5L3.5 8 7 11.5"/><path d="M3.5 8h8.5a4.5 4.5 0 010 9H8.5"/></svg><span class="lbl">Undo</span></button>
+    <button class="btn" id="redoBtn" title="Redo (Ctrl+Y)" disabled><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4.5L16.5 8 13 11.5"/><path d="M16.5 8H8a4.5 4.5 0 000 9h3.5"/></svg></button>
+  </div>
+  <div class="grp">
+    <button class="btn" id="namesBtn" aria-pressed="false" title="Show names on the pieces"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 9.5V4a1 1 0 011-1h5.5l7.5 7.5-6.5 6.5z"/><circle cx="7" cy="7" r="1.3" fill="currentColor"/></svg><span class="lbl">Names</span></button>
+    <button class="btn" id="valuesBtn" aria-pressed="false" title="Show faces, edges and vertices, and the value of blocks"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.5 7.5h11M4.5 12.5h11"/></svg><span class="lbl">Values</span></button>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn solo" id="clearBtn" title="Clear the world"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4h4v2M5.5 6l.8 10h7.4l.8-10"/></svg><span class="lbl">Clear</span></button>
+  <button class="btn solo" id="saveBtn" title="Save your work"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9.5M6 8.8l4 4 4-4M4 16h12"/></svg><span class="lbl">Save</span></button>
+  <button class="btn primary" id="togetherBtn" title="Work in the same world with a partner"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2.1"/><path d="M2.5 16c.6-2.8 2.4-4.2 4.5-4.2s3.9 1.4 4.5 4.2M12 12.3c.6-.3 1.3-.5 2-.5 1.8 0 3.2 1.2 3.6 3.6"/></svg><span id="togetherLbl">Work together</span></button>
+  <button class="btn solo" id="helpBtn" title="How to use" aria-label="How to use"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10" cy="10" r="7.2"/><path d="M8 8a2 2 0 113 1.7c-.7.4-1 .9-1 1.6"/><circle cx="10" cy="14.2" r=".6" fill="currentColor"/></svg></button>
+</header>
+
+<main>
+  <aside id="tray" aria-label="3D pieces. Drag one into the world, or click it."></aside>
+  <section id="stage">
+    <canvas id="view3d" aria-label="3D world"></canvas>
+    <div id="labels"></div>
+    <div id="actionbar" hidden></div>
+    <div id="views" role="group" aria-label="Camera">
+      <button class="vbtn" data-view="home" title="Home view"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3.5 9.5L10 4l6.5 5.5V16h-4.5v-4h-4v4H3.5z"/></svg></button>
+      <button class="vbtn" data-view="front" title="Look from the front">Front</button>
+      <button class="vbtn" data-view="top" title="Look from the top">Top</button>
+      <button class="vbtn" data-view="side" title="Look from the side">Side</button>
+      <button class="vbtn" data-view="fit" title="Show everything"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5"/></svg></button>
+    </div>
+    <div id="world" hidden></div>
+    <div id="loading">Loading the 3D world…<span style="font-weight:500;font-size:13px">Live 3D needs an internet connection the first time it opens.</span></div>
+  </section>
+</main>
+
+<input type="file" id="fileIn" accept=".json,application/json" hidden>
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+// if the 3D library cannot load (no internet), say so instead of leaving the page blank
+setTimeout(() => { if (!window.__live3dReady){ const l = document.getElementById('loading'); if (l) l.innerHTML = 'The 3D world could not load.<span style="font-weight:500;font-size:13px">Live 3D needs an internet connection to load its 3D engine. Check the connection and reload the page.</span>'; } }, 12000);
+</script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+<script type="module">
+/* Live 3D — a shared 3D world for solids, nets and 3D algebra blocks.
+   Original code. 3D drawing by Three.js (MIT), loaded from a CDN; pairing by PeerJS (MIT), loaded on Work together. */
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const ls = { get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }, set(k, v){ try { localStorage.setItem(k, v); } catch(e){} } };
+const rid = () => Math.random().toString(36).slice(2, 10);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const num = (v, d = 0, lo = -1e5, hi = 1e5) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
+const PEOPLE_COLORS = ['#2563eb','#db2777','#059669','#d97706','#7c3aed','#0891b2'];
+const ME = { id:'u' + rid(), name:(ls.get('l3d-name') || '').slice(0, 20), color:PEOPLE_COLORS[Math.floor(Math.random()*PEOPLE_COLORS.length)] };
+const S = { items:{}, sel:null, names:ls.get('l3d-names') === '1', values:ls.get('l3d-values') === '1', start:null };
+
+/* ---------- small vector helpers (plain arrays) ---------- */
+const V = {
+  add:(a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub:(a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+  mul:(a, s) => [a[0]*s, a[1]*s, a[2]*s], dot:(a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2],
+  cross:(a, b) => [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]],
+  len:a => Math.hypot(a[0], a[1], a[2]), norm:a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; },
+  dist:(a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+};
+// turn v about the unit axis k by angle t (Rodrigues)
+function rotAbout(v, k, t){ const c = Math.cos(t), s = Math.sin(t); return V.add(V.add(V.mul(v, c), V.mul(V.cross(k, v), s)), V.mul(k, V.dot(k, v)*(1 - c))); }
+
+/* ---------- solids ----------
+   Each solid is a set of corner points; its faces come from the convex hull. Truncating adds a cutting plane at each
+   corner (or across the tip of a cone), and the solid is rebuilt from all its planes. */
+const PHI = (1 + Math.sqrt(5))/2, SEG = 48;
+const ngon = (n, r, y, off = Math.PI/n) => [...Array(n)].map((_, i) => { const a = off + i*2*Math.PI/n; return [r*Math.cos(a), y, r*Math.sin(a)]; });
+const fitR = (pts, R = 1.55) => { const m = Math.max(...pts.map(p => V.len(p))); return pts.map(p => V.mul(p, R/m)); };
+const cubePts = []; for (const x of [-1,1]) for (const y of [-1,1]) for (const z of [-1,1]) cubePts.push([x, y, z]);
+const icoPts = []; for (const a of [-1,1]) for (const b of [-PHI, PHI]){ icoPts.push([0, a, b], [a, b, 0], [b, 0, a]); }
+const dodPts = [...cubePts]; for (const a of [-1,1]) for (const b of [-1,1]){ dodPts.push([0, a/PHI, b*PHI], [a/PHI, b*PHI, 0], [b*PHI, 0, a/PHI]); }
+const SHAPES = {
+  tetra:  { name:'Tetrahedron',  grp:'reg',   pts:() => fitR([[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]]) },
+  cube:   { name:'Cube',         grp:'reg',   pts:() => fitR(cubePts, 1.6) },
+  octa:   { name:'Octahedron',   grp:'reg',   pts:() => fitR([[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) },
+  dodeca: { name:'Dodecahedron', grp:'reg',   pts:() => fitR(dodPts) },
+  icosa:  { name:'Icosahedron',  grp:'reg',   pts:() => fitR(icoPts) },
+  prism3: { name:'Triangular prism',  grp:'prism', pts:() => [...ngon(3, 1.25, 0), ...ngon(3, 1.25, 2)] },
+  prism4: { name:'Rectangular prism', grp:'prism', pts:() => { const p = []; for (const x of [-1.3,1.3]) for (const y of [0,1.7]) for (const z of [-.85,.85]) p.push([x, y, z]); return p; } },
+  prism5: { name:'Pentagonal prism',  grp:'prism', pts:() => [...ngon(5, 1.15, 0), ...ngon(5, 1.15, 2)] },
+  prism6: { name:'Hexagonal prism',   grp:'prism', pts:() => [...ngon(6, 1.1, 0), ...ngon(6, 1.1, 2)] },
+  pyr3:   { name:'Triangular pyramid', grp:'pyr', pts:() => [...ngon(3, 1.35, 0), [0, 2.2, 0]] },
+  pyr4:   { name:'Square pyramid',     grp:'pyr', pts:() => [...ngon(4, 1.4, 0, Math.PI/4), [0, 2.2, 0]] },
+  pyr5:   { name:'Pentagonal pyramid', grp:'pyr', pts:() => [...ngon(5, 1.3, 0), [0, 2.2, 0]] },
+  pyr6:   { name:'Hexagonal pyramid',  grp:'pyr', pts:() => [...ngon(6, 1.25, 0), [0, 2.2, 0]] },
+  cone:   { name:'Cone',     grp:'round', curved:true, pts:() => [...ngon(SEG, 1.2, 0, 0), [0, 2.4, 0]] },
+  cyl:    { name:'Cylinder', grp:'round', curved:true, pts:() => [...ngon(SEG, 1.05, 0, 0), ...ngon(SEG, 1.05, 2.2, 0)] }
+};
+// the outward planes (n · p = d) of the convex hull of a point set
+function hullPlanes(pts){
+  const planes = [], n = pts.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++){
+    let nr = V.cross(V.sub(pts[j], pts[i]), V.sub(pts[k], pts[i]));
+    if (V.len(nr) < 1e-9) continue;
+    nr = V.norm(nr); let d = V.dot(nr, pts[i]), pos = false, neg = false;
+    for (const p of pts){ const s = V.dot(nr, p) - d; if (s > 1e-7) pos = true; else if (s < -1e-7) neg = true; if (pos && neg) break; }
+    if (pos && neg) continue;
+    if (pos){ nr = V.mul(nr, -1); d = -d; }
+    if (!planes.some(q => V.dot(q.n, nr) > 1 - 1e-7 && Math.abs(q.d - d) < 1e-6)) planes.push({ n:nr, d });
+  }
+  return planes;
+}
+// rebuild a convex solid from its planes: corners, faces (corners in order around each face), edges and neighbours
+function polyFromPlanes(planes){
+  const verts = [], np = planes.length;
+  for (let i = 0; i < np; i++) for (let j = i + 1; j < np; j++){
+    const cij = V.cross(planes[i].n, planes[j].n); if (V.len(cij) < 1e-9) continue;
+    for (let k = j + 1; k < np; k++){
+      const A = planes[i], B = planes[j], C = planes[k], njk = V.cross(B.n, C.n), det = V.dot(A.n, njk);
+      if (Math.abs(det) < 1e-9) continue;
+      const v = V.mul(V.add(V.add(V.mul(njk, A.d), V.mul(V.cross(C.n, A.n), B.d)), V.mul(cij, C.d)), 1/det);
+      if (!planes.every(p => V.dot(p.n, v) - p.d <= 1e-6)) continue;
+      if (!verts.some(w => V.dist(w, v) < 1e-5)) verts.push(v);
+    }
+  }
+  const faces = [];
+  planes.forEach((p, pi) => {
+    const vi = []; verts.forEach((v, i) => { if (Math.abs(V.dot(p.n, v) - p.d) < 1e-5) vi.push(i); });
+    if (vi.length < 3) return;
+    const key = [...vi].sort((a, b) => a - b).join(); if (faces.some(f => f.key === key)) return;
+    const c = V.mul(vi.reduce((s, i) => V.add(s, verts[i]), [0,0,0]), 1/vi.length), u = V.norm(V.sub(verts[vi[0]], c)), w = V.cross(p.n, u);
+    const ang = i => { const q = V.sub(verts[i], c); return Math.atan2(V.dot(q, w), V.dot(q, u)); };
+    vi.sort((a, b) => ang(a) - ang(b));
+    faces.push({ plane:pi, n:p.n, vi, key, c });
+  });
+  const em = new Map();
+  faces.forEach((f, fi) => f.vi.forEach((a, k) => { const b = f.vi[(k + 1) % f.vi.length], key = a < b ? a + '-' + b : b + '-' + a; if (!em.has(key)) em.set(key, { a:Math.min(a, b), b:Math.max(a, b), f:[] }); em.get(key).f.push(fi); }));
+  const edges = [...em.values()].filter(e => e.f.length === 2), nbrs = verts.map(() => []);
+  edges.forEach(e => { nbrs[e.a].push(e.b); nbrs[e.b].push(e.a); });
+  return { verts, faces, edges, nbrs };
+}
+const baseCache = new Map();
+function baseOf(s){
+  if (!baseCache.has(s)){
+    const planes = hullPlanes(SHAPES[s].pts()), poly = polyFromPlanes(planes);
+    let bottom = 0; planes.forEach((p, i) => { if (p.n[1] < planes[bottom].n[1] - 1e-9) bottom = i; });
+    baseCache.set(s, { planes, poly, bottom });
+  }
+  return baseCache.get(s);
+}
+// the largest truncation: corners of a polyhedron up to halfway along the edges; the cone's tip up to 90% of its height
+const truncMax = s => s === 'cone' ? 0.9 : s === 'cyl' ? 0 : 0.5;
+function truncPlanes(s, t){
+  if (t <= 0) return [];
+  const b = baseOf(s);
+  if (s === 'cone'){ const top = Math.max(...b.poly.verts.map(v => v[1])); return [{ n:[0,1,0], d:top*(1 - t) }]; }   // cut off the tip: a frustum
+  if (s === 'cyl') return [];
+  const C = V.mul(b.poly.verts.reduce((a, v) => V.add(a, v), [0,0,0]), 1/b.poly.verts.length);
+  return b.poly.verts.map((v, vi) => {
+    const n = V.norm(V.sub(v, C)); let depth = Infinity;
+    for (const w of b.poly.nbrs[vi]) depth = Math.min(depth, V.dot(n, V.sub(v, b.poly.verts[w])));
+    return { n, d:V.dot(n, v) - t*depth };
+  });
+}
+const FACE_COL = { 3:'#F7C744', 4:'#4F95DB', 5:'#62BF84', 6:'#F39C33', 8:'#9B6BD9', 10:'#E7609E', 12:'#2DB3C9' };
+const CAP_COL = '#2DB3C9', CURVE_COL = '#7FD1AE';
+/* a solid ready to draw: turned so its chosen face is on the floor, with the plan for unfolding it into a net
+   (a tree of faces from the bottom face; each face swings about the edge it shares with its parent) */
+const solidCache = new Map();
+function solidOf(s, bottom, t){
+  const key = s + '|' + bottom + '|' + t.toFixed(3);
+  if (solidCache.has(key)) return solidCache.get(key);
+  const b = baseOf(s), planes = [...b.planes, ...truncPlanes(s, t)], poly = polyFromPlanes(planes);
+  let root = poly.faces.findIndex(f => f.plane === bottom);
+  if (root < 0) root = poly.faces.findIndex(f => f.plane === b.bottom);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...poly.faces[root].n), new THREE.Vector3(0, -1, 0));
+  const rot = p => { const v = new THREE.Vector3(...p).applyQuaternion(q); return [v.x, v.y, v.z]; };
+  let verts = poly.verts.map(rot);
+  const minY = Math.min(...verts.map(v => v[1])), xs = verts.map(v => v[0]), zs = verts.map(v => v[2]);
+  const cx = (Math.min(...xs) + Math.max(...xs))/2, cz = (Math.min(...zs) + Math.max(...zs))/2;
+  verts = verts.map(v => [v[0] - cx, v[1] - minY, v[2] - cz]);
+  const faces = poly.faces.map(f => ({ ...f, n:rot(f.n) }));
+  const curved = !!SHAPES[s].curved, isCap = f => curved && faces[f].vi.length >= 10;
+  // on round solids the curved surface unrolls in one piece: each cap joins it at one seam
+  const seam = {};
+  if (curved) faces.forEach((f, fi) => {
+    if (!isCap(fi)) return;
+    let best = -1, bx = -Infinity;
+    for (const e of poly.edges) if (e.f.includes(fi)){ const o = e.f[0] === fi ? e.f[1] : e.f[0]; const c = faces[o].vi.reduce((s, i) => s + verts[i][0], 0)/faces[o].vi.length; if (c > bx){ bx = c; best = o; } }
+    seam[fi] = best;
+  });
+  const allowed = (f, g) => { if (!curved) return true; const cf = isCap(f), cg = isCap(g); if (!cf && !cg) return true; if (cf && cg) return false; return cf ? seam[f] === g : seam[g] === f; };
+  const parent = faces.map(() => -2), hinge = [], order = [root]; parent[root] = -1;
+  for (let qi = 0; qi < order.length; qi++){
+    const f = order[qi];
+    for (const e of poly.edges){
+      if (!e.f.includes(f)) continue;
+      const g = e.f[0] === f ? e.f[1] : e.f[0];
+      if (parent[g] !== -2 || !allowed(f, g)) continue;
+      parent[g] = f; order.push(g);
+      const a = verts[e.a], bb = verts[e.b], axis = V.norm(V.sub(bb, a)), np = faces[f].n, nf = faces[g].n;
+      const ang = Math.acos(Math.max(-1, Math.min(1, V.dot(np, nf))));
+      const sign = V.dot(rotAbout(nf, axis, ang), np) > 0.999 ? 1 : -1;   // swing outward, until it lies flat with its parent
+      hinge[g] = { a, axis:new THREE.Vector3(...axis), ang:sign*ang };
+    }
+  }
+  const sd = { s, verts, faces, edges:poly.edges, parent, hinge, order, root, curved, isCap,
+               F:faces.length, E:poly.edges.length, Vn:verts.length, height:Math.max(...verts.map(v => v[1])) };
+  if (solidCache.size > 200) solidCache.clear();
+  solidCache.set(key, sd);
+  return sd;
+}
+function solidName(it){
+  const n = SHAPES[it.s].name;
+  if (!(it.t > 0)) return n;
+  if (it.s === 'cone') return 'Frustum (cut cone)';
+  return it.t >= 0.499 && SHAPES[it.s].grp === 'reg' ? { tetra:'Octahedron (rectified tetrahedron)', cube:'Cuboctahedron', octa:'Cuboctahedron', dodeca:'Icosidodecahedron', icosa:'Icosidodecahedron' }[it.s] : 'Truncated ' + n.toLowerCase();
+}
+
+/* ---------- 3D algebra blocks (same sizes as in Edutorium Live, half a world unit per unit) ---------- */
+const BU = 0.5, BX = 1.75, BY = 1.25;
+const AB = {
+  '1':{ d:'111', t:'1',   c:'#F7C744' }, x:{ d:'x11', t:'x', c:'#62BF84' }, y:{ d:'y11', t:'y', c:'#B39DDB' },
+  x2:{ d:'xx1', t:'x²',  c:'#4F95DB' }, xy:{ d:'xy1', t:'xy', c:'#2DB3C9' }, y2:{ d:'yy1', t:'y²', c:'#E7609E' },
+  x3:{ d:'xxx', t:'x³',  c:'#3F6FD8' }, x2y:{ d:'xxy', t:'x²y', c:'#1F9E8F' }, xy2:{ d:'xyy', t:'xy²', c:'#9B6BD9' }, y3:{ d:'yyy', t:'y³', c:'#C2185B' }
+};
+const NEG = '#E4572E';
+// width (world x), depth (world z), height (world y) of a block for its turn o and whether it is swung round (sw)
+function blockDims(it){
+  const s = AB[it.t].d, L = ch => ch === 'x' ? BX : ch === 'y' ? BY : BU, o = it.o || 0;
+  let w = L(s[o % 3]), d = L(s[(o + 1) % 3]); const h = L(s[(o + 2) % 3]);
+  if (it.sw) [w, d] = [d, w];
+  return [w, d, h];
+}
+const TERM_ORDER = ['x³','x²y','xy²','y³','x²','xy','y²','x','y','1'];
+function polyStr(list){
+  const co = {}; for (const i of list){ const t = AB[i.t].t; co[t] = (co[t] || 0) + (i.neg ? -1 : 1); }
+  let e = '';
+  for (const t of TERM_ORDER){ const v = co[t]; if (!v) continue; const mag = Math.abs(v), body = t === '1' ? String(mag) : (mag === 1 ? t : mag + t); e += e ? (v < 0 ? ' − ' : ' + ') + body : (v < 0 ? '−' : '') + body; }
+  return e || '0';
+}
+
+/* ---------- the 3D scene ---------- */
+const canvas = $('#view3d'), stage = $('#stage');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, preserveDrawingBuffer:true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#eef3f8');
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 400);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(6, 12, 8); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.5); fill.position.set(-8, 5, -6); scene.add(fill);
+// the floor and grid sit a little below y = 0 and draw "behind" everything, so flat nets on the floor always show
+const grid = new THREE.GridHelper(40, 80, 0xa9b4c4, 0xd3dae3); grid.position.y = -0.02; grid.renderOrder = -1; scene.add(grid);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color:0xf8fafc, polygonOffset:true, polygonOffsetFactor:8, polygonOffsetUnits:8 })); floor.rotation.x = -Math.PI/2; floor.position.y = -0.04; floor.renderOrder = -2; scene.add(floor);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.12; controls.maxPolarAngle = Math.PI*0.495;   // never below the floor
+controls.minDistance = 2.5; controls.maxDistance = 60;
+const HOME = { pos:[8.5, 7, 11], target:[0, 0.8, 0] };
+camera.position.set(...HOME.pos); controls.target.set(...HOME.target); controls.update();
+function resize(){ const r = stage.getBoundingClientRect(); renderer.setSize(r.width, r.height, false); camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(stage); resize();
+
+// smooth camera moves for the view buttons
+let camAnim = null;
+function moveCamera(pos, target){
+  camAnim = { t0:performance.now(), p0:camera.position.clone(), q0:controls.target.clone(), p1:new THREE.Vector3(...pos), q1:new THREE.Vector3(...target) };
+}
+function contentBox(){
+  const box = new THREE.Box3();
+  for (const id in objs) box.expandByObject(objs[id]);
+  return box.isEmpty() ? null : box;
+}
+function setView(v){
+  const box = contentBox(), c = box ? box.getCenter(new THREE.Vector3()) : new THREE.Vector3(0, 0.8, 0);
+  const r = box ? Math.max(2.5, box.getSize(new THREE.Vector3()).length()/2) : 3, dist = r / Math.sin(THREE.MathUtils.degToRad(camera.fov/2)) * 1.05;
+  if (v === 'home') return moveCamera(HOME.pos, HOME.target);
+  if (v === 'front') return moveCamera([c.x, c.y + 0.4, c.z + dist], [c.x, c.y, c.z]);
+  if (v === 'side') return moveCamera([c.x + dist, c.y + 0.4, c.z], [c.x, c.y, c.z]);
+  if (v === 'top') return moveCamera([c.x, c.y + dist, c.z + 0.01], [c.x, c.y, c.z]);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  moveCamera([c.x + dir.x*dist, c.y + dir.y*dist, c.z + dir.z*dist], [c.x, c.y, c.z]);
+}
+$('#views').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
+
+/* ---------- drawing the pieces ---------- */
+const objs = {}, pickables = [];
+function faceColor(sd, fi){
+  const f = sd.faces[fi];
+  if (sd.curved) return sd.isCap(fi) ? CAP_COL : CURVE_COL;
+  return FACE_COL[f.vi.length] || '#B0BEC5';
+}
+function buildSolid(it){
+  const sd = solidOf(it.s, it.bottom, it.t || 0), g = new THREE.Group(), faceObjs = [];
+  sd.faces.forEach((f, fi) => {
+    const pts = f.vi.map(i => sd.verts[i]), pos = [];
+    for (let k = 1; k < pts.length - 1; k++) pos.push(...pts[0], ...pts[k], ...pts[k + 1]);
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color:faceColor(sd, fi), side:THREE.DoubleSide, roughness:.65, metalness:0, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1 });
+    const mesh = new THREE.Mesh(geo, mat); mesh.matrixAutoUpdate = false; mesh.userData.id = it.id;
+    // outline only the real edges (not the many seams on a round surface)
+    const seg = [];
+    f.vi.forEach((a, k) => {
+      const b = f.vi[(k + 1) % f.vi.length], e = sd.edges.find(q => (q.a === a && q.b === b) || (q.a === b && q.b === a));
+      const other = e ? (e.f[0] === fi ? e.f[1] : e.f[0]) : -1;
+      if (other >= 0 && sd.curved && !sd.isCap(fi) && !sd.isCap(other)) return;
+      seg.push(...sd.verts[a], ...sd.verts[b]);
+    });
+    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+    const line = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color:0x1f2937 })); line.matrixAutoUpdate = false;
+    g.add(mesh, line); faceObjs.push({ mesh, line }); pickables.push(mesh);
+  });
+  g.userData = { sd, faceObjs, key:it.s + '|' + it.bottom + '|' + (it.t || 0).toFixed(3) };
+  applyUnfold(g, it.u || 0);
+  return g;
+}
+// swing every face about its hinge: u = 0 the solid, u = 1 the flat net on the floor
+function applyUnfold(g, u){
+  const { sd, faceObjs } = g.userData, M = [];
+  for (const f of sd.order){
+    if (sd.parent[f] < 0) M[f] = new THREE.Matrix4();
+    else {
+      const h = sd.hinge[f];
+      const m = new THREE.Matrix4().makeTranslation(h.a[0], h.a[1], h.a[2]).multiply(new THREE.Matrix4().makeRotationAxis(h.axis, h.ang*u)).multiply(new THREE.Matrix4().makeTranslation(-h.a[0], -h.a[1], -h.a[2]));
+      M[f] = M[sd.parent[f]].clone().multiply(m);
+    }
+    faceObjs[f].mesh.matrix.copy(M[f]); faceObjs[f].line.matrix.copy(M[f]);
+    faceObjs[f].mesh.matrixWorldNeedsUpdate = true; faceObjs[f].line.matrixWorldNeedsUpdate = true;
+  }
+  g.userData.u = u;
+}
+function buildBlock(it){
+  const [w, d, h] = blockDims(it), c = it.neg ? NEG : AB[it.t].c, g = new THREE.Group();
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color:c, roughness:.55, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1 }));
+  mesh.userData.id = it.id; pickables.push(mesh);
+  const line = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color:new THREE.Color(c).multiplyScalar(.45) }));
+  g.add(mesh, line);
+  g.userData = { key:'b' + it.t + (it.o || 0) + (it.sw ? 1 : 0) + (it.neg ? 1 : 0) };
+  return g;
+}
+function shapeKey(it){ return it.k === 'solid' ? it.s + '|' + it.bottom + '|' + (it.t || 0).toFixed(3) : 'b' + it.t + (it.o || 0) + (it.sw ? 1 : 0) + (it.neg ? 1 : 0); }
+function disposeObj(g){
+  g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); const k = pickables.indexOf(o); if (k >= 0) pickables.splice(k, 1); });
+  scene.remove(g);
+}
+function sync(){
+  for (const id in objs) if (!S.items[id]){ disposeObj(objs[id]); delete objs[id]; }
+  for (const it of Object.values(S.items)){
+    let g = objs[it.id];
+    if (g && g.userData.key !== shapeKey(it)){ disposeObj(g); g = null; }
+    if (!g){ g = it.k === 'solid' ? buildSolid(it) : buildBlock(it); objs[it.id] = g; scene.add(g); }
+    if (it.k === 'solid'){
+      g.position.set(it.x, 0, it.z); g.rotation.y = it.ry || 0;
+      if (Math.abs((g.userData.u ?? -1) - (it.u || 0)) > 1e-4) applyUnfold(g, it.u || 0);
+    } else {
+      const [w, d, h] = blockDims(it); g.position.set(it.x + w/2, it.y + h/2, it.z + d/2);
+    }
+    const on = S.sel === it.id;
+    g.traverse(o => { if (o.isMesh){ o.material.emissive = new THREE.Color(on ? 0x1d4ed8 : 0x000000); o.material.emissiveIntensity = on ? .35 : 0; } });
+  }
+  if (S.sel && !S.items[S.sel]) S.sel = null;
+  updateBar(); updateLabels(); updateWorld();
+}
+
+/* ---------- names over the pieces ---------- */
+const labelsEl = $('#labels'), labelEls = {};
+function updateLabels(){
+  for (const id in labelEls) if (!S.items[id] || !S.names){ labelEls[id].remove(); delete labelEls[id]; }
+  if (!S.names) return;
+  const r = canvas.getBoundingClientRect();
+  for (const it of Object.values(S.items)){
+    const g = objs[it.id]; if (!g) continue;
+    let el = labelEls[it.id]; if (!el){ el = document.createElement('div'); el.className = 'lab'; labelsEl.appendChild(el); labelEls[it.id] = el; }
+    el.textContent = it.k === 'solid' ? solidName(it) : (it.neg ? '−' : '') + AB[it.t].t;
+    const box = new THREE.Box3().setFromObject(g), p = new THREE.Vector3((box.min.x + box.max.x)/2, box.max.y + 0.15, (box.min.z + box.max.z)/2).project(camera);
+    const hide = p.z > 1; el.style.display = hide ? 'none' : '';
+    el.style.left = ((p.x + 1)/2*r.width) + 'px'; el.style.top = ((1 - p.y)/2*r.height) + 'px';
+  }
+}
+function updateWorld(){
+  const blocks = Object.values(S.items).filter(i => i.k === 'block'), el = $('#world');
+  el.hidden = !(S.values && blocks.length);
+  if (!el.hidden) el.textContent = 'Blocks in the world: ' + polyStr(blocks);
+}
+
+/* ---------- changes, undo, saving ---------- */
+let undoS = [], redoS = [];
+const begin = () => structuredClone(S.items);
+function commit(pre){
+  const ch = [];
+  for (const id of new Set([...Object.keys(pre), ...Object.keys(S.items)])){
+    const a = pre[id] || null, b = S.items[id] || null;
+    if (JSON.stringify(a) !== JSON.stringify(b)) ch.push([id, a, b && structuredClone(b)]);
+  }
+  if (ch.length){ undoS.push(ch); if (undoS.length > 80) undoS.shift(); redoS = []; }
+  undoBtns();
+}
+const act = fn => { const pre = begin(); fn(); commit(pre); };
+function replay(ch, back){ const sets = [], dels = []; for (const [id, a, b] of ch){ const v = back ? a : b; if (v) sets.push(structuredClone(v)); else dels.push(id); } put(sets); drop(dels); }
+function undo(){ const ch = undoS.pop(); if (!ch) return; replay(ch, true); redoS.push(ch); undoBtns(); }
+function redo(){ const ch = redoS.pop(); if (!ch) return; replay(ch, false); undoS.push(ch); undoBtns(); }
+function undoBtns(){ $('#undoBtn').disabled = !undoS.length; $('#redoBtn').disabled = !redoS.length; }
+let saveT = 0;
+const save = () => { clearTimeout(saveT); saveT = setTimeout(() => ls.set('l3d-world-v1', JSON.stringify(Object.values(S.items))), 400); };
+let syncQ = 0;
+const dirty = () => { if (!syncQ) syncQ = requestAnimationFrame(() => { syncQ = 0; sync(); }); };
+function put(list, send = true){ if (!list.length) return; for (const it of list) S.items[it.id] = it; if (send) bcast({ t:'set', items:list }); dirty(); save(); }
+function drop(ids, send = true){ ids = ids.filter(id => S.items[id]); if (!ids.length) return; for (const id of ids){ delete S.items[id]; if (S.sel === id) S.sel = null; } if (send) bcast({ t:'del', ids }); dirty(); save(); }
+const snap = v => Math.round(v*4)/4;   // a quarter of a grid square
+
+// anything that arrives from a link, a file or a partner is rebuilt from known fields only
+function clean(o){
+  if (!o || typeof o !== 'object') return null;
+  const id = String(o.id || ''); if (!/^[\w-]{1,40}$/.test(id)) return null;
+  if (o.k === 'solid'){
+    if (!Object.prototype.hasOwnProperty.call(SHAPES, o.s)) return null;
+    const b = baseOf(o.s), it = { id, k:'solid', s:o.s, x:num(o.x, 0, -19, 19), z:num(o.z, 0, -19, 19), ry:num(o.ry, 0, -100, 100) };
+    it.bottom = Math.round(num(o.bottom, b.bottom, 0, b.planes.length - 1));
+    it.t = num(o.t, 0, 0, truncMax(o.s)); it.u = num(o.u, 0, 0, 1);
+    return it;
+  }
+  if (o.k === 'block'){
+    if (!Object.prototype.hasOwnProperty.call(AB, o.t)) return null;
+    const it = { id, k:'block', t:o.t, o:Math.round(num(o.o, 0, 0, 2)), x:num(o.x, 0, -19, 19), y:num(o.y, 0, 0, 40), z:num(o.z, 0, -19, 19) };
+    if (o.sw) it.sw = true; if (o.neg) it.neg = true;
+    return it;
+  }
+  return null;
+}
+function loadAll(list){ S.items = {}; S.sel = null; for (const o of list.slice(0, 500)){ const it = clean(o); if (it) S.items[it.id] = it; } dirty(); save(); }
+
+/* ---------- placing, picking and dragging ---------- */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function aim(e){ const r = canvas.getBoundingClientRect(); ndc.set((e.clientX - r.left)/r.width*2 - 1, -(e.clientY - r.top)/r.height*2 + 1); ray.setFromCamera(ndc, camera); }
+function floorAt(e, y = 0){ aim(e); const p = new THREE.Vector3(); return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), p) ? p : null; }
+function pickAt(e){ aim(e); const h = ray.intersectObjects(pickables, false); return h.length ? h[0].object.userData.id : null; }
+// a block sits on the floor or on top of the highest block under it
+function stackY(it, x, z, skip = new Set()){
+  const [w, d] = blockDims(it); let y = 0;
+  for (const o of Object.values(S.items)){
+    if (o.k !== 'block' || o.id === it.id || skip.has(o.id)) continue;
+    const [ow, od, oh] = blockDims(o);
+    if (x < o.x + ow - 1e-6 && x + w > o.x + 1e-6 && z < o.z + od - 1e-6 && z + d > o.z + 1e-6) y = Math.max(y, o.y + oh);
+  }
+  return y;
+}
+function newItem(pid, at){
+  const id = ME.id.slice(1, 5) + rid();
+  if (pid.startsWith('ab-')){
+    const it = { id, k:'block', t:pid.slice(3), o:0, x:0, y:0, z:0 }, [w, , d] = blockDims(it);
+    it.x = snap(at.x - w/2); it.z = snap(at.z - d/2); it.y = stackY(it, it.x, it.z);
+    return it;
+  }
+  return { id, k:'solid', s:pid, x:snap(at.x), z:snap(at.z), ry:0, bottom:baseOf(pid).bottom, t:0, u:0 };
+}
+const overTray = e => { const r = $('#tray').getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
+let D = null, pend = new Set(), pendT = 0;
+function sendLater(id){ pend.add(id); if (!pendT) pendT = setTimeout(flush, 50); }
+function flush(){ clearTimeout(pendT); pendT = 0; const l = [...pend].map(i => S.items[i]).filter(Boolean); pend.clear(); if (l.length) bcast({ t:'set', items:l }); }
+
+canvas.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || D) return;
+  const id = pickAt(e);
+  if (!id){ D = { mode:'empty', sx:e.clientX, sy:e.clientY }; return; }
+  // grabbing a piece: the camera holds still while it moves
+  controls.enabled = false;
+  S.sel = id; dirty();
+  const it = S.items[id], y = it.k === 'block' ? it.y : 0, p = floorAt(e, y);
+  D = { mode:'move', id, pre:begin(), start:p, ox:it.x, oz:it.z, moved:false, sx:e.clientX, sy:e.clientY };
+}, { capture:true });
+window.addEventListener('pointermove', e => {
+  if (!D) return;
+  if (D.mode === 'new'){
+    if (!D.made){
+      if (Math.hypot(e.clientX - D.sx, e.clientY - D.sy) < 6) return;
+      const p = floorAt(e); if (!p) return;
+      const it = newItem(D.pid, p); put([it]); S.sel = it.id; D.made = it.id; controls.enabled = false;
+      D.mode = 'move'; D.id = it.id; D.start = floorAt(e, it.k === 'block' ? it.y : 0); D.ox = it.x; D.oz = it.z; D.moved = true; D.fromTray = true;
+    }
+    return;
+  }
+  if (D.mode !== 'move') return;
+  const it = S.items[D.id]; if (!it || !D.start) return;
+  const p = floorAt(e, it.k === 'block' ? it.y : 0); if (!p) return;
+  if (!D.moved && Math.hypot(e.clientX - D.sx, e.clientY - D.sy) < 4) return;
+  D.moved = true;
+  it.x = snap(D.ox + p.x - D.start.x); it.z = snap(D.oz + p.z - D.start.z);
+  if (it.k === 'block'){ const ny = stackY(it, it.x, it.z); if (ny !== it.y){ D.start.y = ny; it.y = ny; } }
+  $('#tray').classList.toggle('drop', overTray(e));
+  dirty(); sendLater(it.id);
+});
+function endDrag(e){
+  if (!D) return;
+  const d = D; D = null; controls.enabled = true; $('#tray').classList.remove('drop');
+  if (d.mode === 'empty'){ if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4){ S.sel = null; dirty(); } return; }
+  if (d.mode === 'new'){
+    // a click on a tile: the piece appears where the camera is looking
+    const r = canvas.getBoundingClientRect(), c = floorAt({ clientX:r.left + r.width/2, clientY:r.top + r.height/2 }) || new THREE.Vector3();
+    const it = newItem(d.pid, { x:c.x + (Math.random() - .5)*2, z:c.z + (Math.random() - .5)*2 });
+    put([it]); S.sel = it.id; commit(d.pre); return;
+  }
+  if (d.mode === 'move'){
+    if (!d.moved) return;
+    if (e && e.type === 'pointerup' && overTray(e)){ drop([d.id]); commit(d.pre); return; }
+    pend.clear(); clearTimeout(pendT); pendT = 0;
+    if (S.items[d.id]) put([S.items[d.id]]);
+    commit(d.pre);
+  }
+}
+window.addEventListener('pointerup', endDrag);
+window.addEventListener('pointercancel', e => { if (D && D.mode === 'new'){ D = null; return; } endDrag(e); });
+
+/* ---------- side menu ---------- */
+const GROUPS = [
+  { id:'reg',   name:'Regular solids', tiles:['tetra','cube','octa','dodeca','icosa'] },
+  { id:'prism', name:'Prisms',         tiles:['prism3','prism4','prism5','prism6'] },
+  { id:'pyr',   name:'Pyramids',       tiles:['pyr3','pyr4','pyr5','pyr6'] },
+  { id:'round', name:'Cone and cylinder', tiles:['cone','cyl'] },
+  { id:'blocks', name:'3D algebra blocks', tiles:Object.keys(AB).map(t => 'ab-' + t) }
+];
+const tileName = pid => pid.startsWith('ab-') ? AB[pid.slice(3)].t : SHAPES[pid].name;
+// small pictures of each piece, drawn once by a second, off-screen 3D renderer
+function thumbnails(){
+  const size = 144, r2 = new THREE.WebGLRenderer({ antialias:true, alpha:true, preserveDrawingBuffer:true }); r2.setSize(size, size, false);
+  const sc = new THREE.Scene(); sc.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 1.7)); const l = new THREE.DirectionalLight(0xffffff, 1.4); l.position.set(5, 9, 7); sc.add(l);
+  const cam = new THREE.PerspectiveCamera(32, 1, 0.1, 100), out = {};
+  for (const g of GROUPS) for (const pid of g.tiles){
+    const it = pid.startsWith('ab-') ? { id:'t', k:'block', t:pid.slice(3), o:0, x:0, y:0, z:0 } : { id:'t', k:'solid', s:pid, x:0, z:0, ry:0, bottom:baseOf(pid).bottom, t:0, u:0 };
+    const obj = it.k === 'solid' ? buildSolid(it) : buildBlock(it);
+    if (it.k === 'block'){ const [w, d, h] = blockDims(it); obj.position.set(0, h/2, 0); }
+    sc.add(obj);
+    const box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), rad = box.getSize(new THREE.Vector3()).length()/2;
+    const dir = new THREE.Vector3(0.75, 0.62, 1).normalize(), dist = rad/Math.sin(THREE.MathUtils.degToRad(16));
+    cam.position.copy(c).addScaledVector(dir, dist); cam.lookAt(c);
+    r2.render(sc, cam); out[pid] = r2.domElement.toDataURL('image/png');
+    sc.remove(obj); disposeObj(obj);
+  }
+  r2.dispose();
+  return out;
+}
+function buildTray(){
+  const pics = thumbnails();
+  let html = '';
+  for (const g of GROUPS){
+    html += `<details open><summary>${g.name}</summary><div class="tiles">`;
+    for (const pid of g.tiles) html += `<button type="button" class="tile" data-pid="${pid}" aria-label="Add ${esc(tileName(pid))}"><img src="${pics[pid]}" alt=""><span>${esc(tileName(pid))}</span></button>`;
+    html += `</div></details>`;
+  }
+  html += `<p class="tray-hint">Drag pieces into the world, or click one. Drag pieces back here to remove them.</p>`;
+  $('#tray').innerHTML = html;
+}
+$('#tray').addEventListener('pointerdown', e => {
+  const t = e.target.closest('.tile'); if (!t || e.button > 0 || D) return;
+  e.preventDefault();
+  D = { mode:'new', pid:t.dataset.pid, sx:e.clientX, sy:e.clientY, pre:begin() };
+});
+$('#tray').addEventListener('click', e => {
+  const t = e.target.closest('.tile'); if (!t || e.detail !== 0) return;
+  const pre = begin(), it = newItem(t.dataset.pid, { x:0, z:0 }); put([it]); S.sel = it.id; commit(pre);
+});
+
+/* ---------- the action bar for the selected piece ---------- */
+const bar = $('#actionbar');
+const ICON = {
+  turn:'<path d="M15.5 10A5.5 5.5 0 1110 4.5h3"/><path d="M11.5 2.5l2 2-2 2"/>',
+  tip:'<path d="M4 15h12"/><path d="M6 15V8h6v7"/><path d="M14 6.5a5 5 0 012 4"/><path d="M15.2 9.2l.9 1.6 1.6-.9"/>',
+  face:'<path d="M3 15l7 3 7-3"/><path d="M10 3l7 4v8l-7 3-7-3V7z"/>',
+  flip:'<path d="M3 7h11l-3-3M17 13H6l3 3"/>',
+  dup:'<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2"/>',
+  del:'<path d="M4 6h12M8 6V4h4v2M5.5 6l.8 10h7.4l.8-10"/>'
+};
+const ico = n => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+const abtn = (a, icon, label, extra = '') => `<button type="button" class="act ${extra}" data-act="${a}" title="${label}">${ico(icon)}<span class="lbl">${label}</span></button>`;
+let barSig = '';
+function updateBar(){
+  const it = S.sel && S.items[S.sel];
+  if (!it){ bar.hidden = true; barSig = ''; return; }
+  const sig = JSON.stringify(it) + S.values;
+  if (sig === barSig) return;
+  // keep a slider that is being dragged; only refresh its number
+  const active = document.activeElement && document.activeElement.closest && document.activeElement.closest('#actionbar input[type=range]');
+  if (active && barSig && JSON.parse(barSig.slice(0, -String(S.values).length)).id === it.id){
+    bar.querySelectorAll('input[type=range]').forEach(r => { const o = r.parentElement.querySelector('output'); if (o) o.textContent = Math.round(r.value) + '%'; });
+    const inf = bar.querySelector('.info'); if (inf) inf.innerHTML = infoText(it);
+    const hd = bar.querySelector('.abhead'); if (hd) hd.textContent = it.k === 'solid' ? solidName(it) : (it.neg ? '−' : '') + AB[it.t].t;
+    barSig = sig; return;
+  }
+  barSig = sig;
+  let h = `<div class="abhead">${esc(it.k === 'solid' ? solidName(it) : (it.neg ? '−' : '') + AB[it.t].t)}</div>`;
+  if (it.k === 'solid'){
+    h += `<label class="slider">Unfold <input type="range" min="0" max="100" step="1" value="${Math.round((it.u || 0)*100)}" data-slide="u" aria-label="Unfold into a net"><output>${Math.round((it.u || 0)*100)}%</output></label>`;
+    const tm = truncMax(it.s);
+    if (tm > 0) h += `<label class="slider">${it.s === 'cone' ? 'Cut the tip' : 'Truncate'} <input type="range" min="0" max="${Math.round(tm*100)}" step="1" value="${Math.round((it.t || 0)*100)}" data-slide="t" aria-label="${it.s === 'cone' ? 'Cut off the tip' : 'Cut off the corners'}"><output>${Math.round((it.t || 0)*100)}%</output></label>`;
+    h += `<div class="acts">${abtn('face','face','Next face down')}${abtn('turn','turn','Turn')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
+  } else {
+    h += `<div class="acts">${abtn('flip','flip','Flip')}${abtn('turn','turn','Turn')}${abtn('tip','tip','Tip over')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
+  }
+  if (S.values) h += `<div class="info">${infoText(it)}</div>`;
+  bar.innerHTML = h; bar.hidden = false;
+}
+function infoText(it){
+  if (!S.values) return '';
+  if (it.k === 'block') return 'Value: ' + (it.neg ? '−' : '') + AB[it.t].t;
+  const sd = solidOf(it.s, it.bottom, it.t || 0);
+  if (sd.curved){
+    const caps = sd.faces.filter((f, i) => sd.isCap(i)).length;
+    return `${caps} flat circular face${caps === 1 ? '' : 's'} and 1 curved surface${it.s === 'cone' && !(it.t > 0) ? ' · 1 vertex (the tip)' : ''}`;
+  }
+  return `Faces <b>${sd.F}</b> · Edges <b>${sd.E}</b> · Vertices <b>${sd.Vn}</b> &nbsp;→&nbsp; F + V − E = ${sd.F} + ${sd.Vn} − ${sd.E} = <b>${sd.F + sd.Vn - sd.E}</b>`;
+}
+let slidePre = null;
+bar.addEventListener('input', e => {
+  const r = e.target.closest('[data-slide]'); if (!r) return;
+  const it = S.items[S.sel]; if (!it) return;
+  if (!slidePre) slidePre = begin();
+  it[r.dataset.slide] = +r.value/100;
+  dirty(); sendLater(it.id);
+});
+bar.addEventListener('change', e => {
+  if (!e.target.closest('[data-slide]') || !slidePre) return;
+  flush(); const it = S.items[S.sel]; if (it) put([it]);
+  commit(slidePre); slidePre = null;
+});
+bar.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const it = S.items[S.sel]; if (!it) return;
+  const a = b.dataset.act;
+  act(() => {
+    if (a === 'del') drop([it.id]);
+    else if (a === 'dup'){
+      const n = structuredClone(it); n.id = ME.id.slice(1, 5) + rid(); n.x = snap(it.x + 2.5);
+      if (n.k === 'block') n.y = stackY(n, n.x, n.z);
+      put([n]); S.sel = n.id;
+    } else if (a === 'turn'){
+      if (it.k === 'solid') put([{ ...it, ry:((it.ry || 0) + Math.PI/4) % (2*Math.PI) }]);
+      else { const n = { ...it }; if (n.sw) delete n.sw; else n.sw = true; n.y = stackY(n, n.x, n.z); put([n]); }
+    } else if (a === 'tip'){ const n = { ...it, o:((it.o || 0) + 1) % 3 }; n.y = stackY(n, n.x, n.z); put([n]); }
+    else if (a === 'flip'){ const n = { ...it }; if (n.neg) delete n.neg; else n.neg = true; put([n]); }
+    else if (a === 'face'){
+      // the next face of the solid goes on the floor: a different net
+      const b0 = baseOf(it.s), sd = solidOf(it.s, it.bottom, it.t || 0), present = new Set(sd.faces.map(f => f.plane));
+      let nb = it.bottom;
+      for (let k = 1; k <= b0.planes.length; k++){ const c = (it.bottom + k) % b0.planes.length; if (present.has(c)){ nb = c; break; } }
+      put([{ ...it, bottom:nb }]);
+    }
+  });
+});
+
+/* ---------- top bar ---------- */
+function syncToggles(){ $('#namesBtn').setAttribute('aria-pressed', S.names); $('#valuesBtn').setAttribute('aria-pressed', S.values); }
+$('#namesBtn').onclick = () => { S.names = !S.names; ls.set('l3d-names', S.names ? '1' : '0'); syncToggles(); dirty(); };
+$('#valuesBtn').onclick = () => { S.values = !S.values; ls.set('l3d-values', S.values ? '1' : '0'); syncToggles(); barSig = ''; dirty(); if (S.values && !S.sel) toast('Select a solid to see its faces, edges and vertices.'); };
+$('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
+window.addEventListener('keydown', e => {
+  if ($('#dlg').open || (e.target.matches && e.target.matches('input,select,textarea'))) return;
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (mod && k === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (mod && k === 'y'){ e.preventDefault(); redo(); }
+  else if (!mod && (k === 'delete' || k === 'backspace') && S.sel){ e.preventDefault(); act(() => drop([S.sel])); }
+  else if (!mod && k === 'escape'){ S.sel = null; dirty(); }
+});
+
+/* ---------- dialogs and messages ---------- */
+const dlg = $('#dlg'), dlgForm = $('#dlgForm');
+let dlgHandler = null;
+function openDlg(html, handler){ dlgForm.innerHTML = html; dlgHandler = handler; if (!dlg.open) dlg.showModal(); const f = dlgForm.querySelector('[autofocus]'); if (f) f.focus(); }
+dlgForm.addEventListener('submit', e => { const v = e.submitter ? e.submitter.value : 'ok'; if (dlgHandler && v !== 'cancel'){ if (dlgHandler(v, new FormData(dlgForm)) === false) e.preventDefault(); } });
+dlg.addEventListener('close', () => { dlgHandler = null; dlg._together = false; });
+dlgForm.addEventListener('click', e => { const c = e.target.closest('[data-copy]'); if (!c) return; const inp = dlgForm.querySelector(c.dataset.copy); navigator.clipboard.writeText(inp.value).then(() => c.textContent = 'Copied', () => { c.textContent = 'Select and copy'; inp.select(); }); });
+let toastT = 0;
+function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200); }
+
+$('#clearBtn').onclick = () => openDlg(`<h2>Clear the world?</h2><p>This removes every piece${NET.conns.size ? ' for everyone in this world' : ''}. You can undo it.</p><menu><button class="btn" value="cancel">Cancel</button><button class="btn primary" value="ok">Clear</button></menu>`,
+  () => act(() => drop(Object.keys(S.items))));
+$('#helpBtn').onclick = () => openDlg(`<h2>How to use Live 3D</h2><div class="help"><ul>
+  <li><b>Add pieces:</b> drag them from the left into the world, or click one.</li>
+  <li><b>Look around:</b> drag empty space to spin, right-drag (or two fingers) to slide, scroll or pinch to zoom. Use Home, Front, Top, Side and Fit on the right.</li>
+  <li><b>Move a piece:</b> drag it along the floor. Blocks stack on top of other blocks. Drag a piece back to the left to remove it.</li>
+  <li><b>Nets:</b> select a solid and move <b>Unfold</b> to open it flat into its net. <b>Next face down</b> stands it on another face, which gives a different net.</li>
+  <li><b>Truncate:</b> cut off the corners of a polyhedron (or the tip of a cone). Truncated solids unfold too.</li>
+  <li><b>Values:</b> shows faces, edges and vertices of the selected solid, and checks F + V − E = 2. For blocks it shows the expression.</li>
+  <li><b>3D algebra blocks:</b> Flip for the negative side, Turn to swing it round, Tip over to stand it another way.</li>
+  <li><b>Work together:</b> one person starts and gets a code; the partner types it. Each person moves their own camera; the pieces are shared.</li></ul></div>
+  <menu><button class="btn primary" value="cancel">Got it</button></menu>`, null);
+
+/* ---------- save: picture, file, link ---------- */
+function download(blob, name){ const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }
+const today = () => new Date().toISOString().slice(0, 10);
+const b64u = bytes => { let s = ''; bytes.forEach(b => s += String.fromCharCode(b)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
+const unb64u = str => Uint8Array.from(atob(str.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
+const compact = () => Object.values(S.items).map(i => { const o = { ...i }; for (const k of ['x','y','z','ry','t','u']) if (typeof o[k] === 'number') o[k] = Math.round(o[k]*1000)/1000; return o; });
+async function encodeWorld(){
+  const json = new TextEncoder().encode(JSON.stringify({ v:1, items:compact() }));
+  if (window.CompressionStream){ const buf = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer(); return 'z' + b64u(new Uint8Array(buf)); }
+  return 'j' + b64u(json);
+}
+async function decodeWorld(s){
+  let bytes = unb64u(s.slice(1));
+  if (s[0] === 'z') bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  return (JSON.parse(new TextDecoder().decode(bytes)).items || []).map(clean).filter(Boolean);
+}
+function baseUrl(){ const u = new URL(location.href); u.hash = ''; u.searchParams.delete('join'); return u; }
+$('#saveBtn').onclick = () => openDlg(`<h2>Save your work</h2><div class="saves">
+    <button class="saveopt" value="png"><b>Save as a picture</b><span>A PNG of what the camera shows.</span></button>
+    <button class="saveopt" value="file"><b>Save a world file</b><span>Keep working later: open it again with the button below.</span></button>
+    <button class="saveopt" value="open"><b>Open a world file</b><span>Load a world you saved. It replaces this one${NET.conns.size ? ' for everyone' : ''}.</span></button>
+    <button class="saveopt" value="link"><b>Copy a world link</b><span>A link that opens this world, for slides or Google Classroom.</span></button></div>
+  <p style="margin-top:12px;font-size:13px">This browser also keeps the world while you work.</p><menu><button class="btn" value="cancel">Close</button></menu>`,
+  v => {
+    if (v === 'png'){ S.sel = null; sync(); renderer.render(scene, camera); canvas.toBlob(b => { if (b){ download(b, `live-3d-${today()}.png`); toast('Picture saved.'); } }, 'image/png'); }
+    else if (v === 'file'){ download(new Blob([JSON.stringify({ app:'live-3d', v:1, items:compact() })], { type:'application/json' }), `live-3d-world-${today()}.json`); toast('World file saved.'); }
+    else if (v === 'open') $('#fileIn').click();
+    else if (v === 'link') setTimeout(async () => {
+      const u = baseUrl(); u.hash = 'w=' + await encodeWorld();
+      openDlg(`<h2>World link</h2><p>This link opens the world as it is now. Each time it opens it starts fresh from this world.</p>
+        <label for="linkOut">Link</label><div class="row"><input id="linkOut" readonly value="${esc(u.toString())}"><button type="button" class="btn" data-copy="#linkOut" style="flex:0 0 auto">Copy link</button></div>
+        <menu><button class="btn primary" value="cancel">Done</button></menu>`, null);
+    }, 0);
+  });
+$('#fileIn').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const o = JSON.parse(await f.text());
+    if (!o || o.app !== 'live-3d' || !Array.isArray(o.items)) throw 0;
+    const items = o.items.map(clean).filter(Boolean);
+    act(() => { drop(Object.keys(S.items)); put(items); });
+    toast('World opened.'); setView('fit');
+  } catch(err){ toast('That file is not a Live 3D world.'); }
+});
+
+/* ---------- working together (peer to peer, no accounts; same as Edutorium Live) ---------- */
+const NET = { peer:null, conns:new Set(), host:false, code:'', state:'off' }, peers = {};
+let peerLib = null;
+function loadPeer(){
+  if (window.Peer) return Promise.resolve();
+  if (!peerLib) peerLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'; s.onload = res; s.onerror = () => { peerLib = null; rej(); }; document.head.appendChild(s); });
+  return peerLib;
+}
+const pid = code => 'edutorium-live3d-' + code.toLowerCase();
+function genCode(){ const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += A[Math.floor(Math.random()*A.length)]; return s; }
+function bcast(m, except){ for (const c of NET.conns) if (c !== except && c.open){ try { c.send(m); } catch(e){} } }
+const myName = () => ME.name || 'Partner';
+function leave(silent){
+  for (const c of NET.conns) try { c.close(); } catch(e){}
+  NET.conns.clear(); if (NET.peer) try { NET.peer.destroy(); } catch(e){}
+  NET.peer = null; NET.host = false; NET.code = ''; NET.state = 'off'; for (const k in peers) delete peers[k];
+  netStatus(); if (!silent) toast('You are working on your own now.');
+}
+async function startHost(){
+  leave(true); NET.host = true; NET.code = genCode(); NET.state = 'starting'; netStatus();
+  try { await loadPeer(); } catch(e){ leave(true); toast('Working together needs an internet connection.'); return; }
+  const p = new Peer(pid(NET.code), { debug:0 }); NET.peer = p;
+  p.on('open', () => { NET.state = 'waiting'; netStatus(); if (dlg.open && dlg._together) showTogether(); });
+  p.on('connection', c => { wire(c); c.on('open', () => { c.send({ t:'hello', id:ME.id, name:myName(), color:ME.color }); c.send({ t:'state', items:S.items }); for (const [id, q] of Object.entries(peers)) c.send({ t:'hello', id, name:q.name, color:q.color }); }); });
+  p.on('error', err => { if (err.type === 'unavailable-id'){ startHost(); return; } if (!NET.conns.size){ leave(true); toast('Could not connect. Try again.'); } });
+  p.on('disconnected', () => { try { if (!p.destroyed) p.reconnect(); } catch(e){} });
+}
+async function join(code){
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 6){ toast('Codes have 6 letters and numbers.'); return; }
+  leave(true); NET.host = false; NET.code = code; NET.state = 'joining'; netStatus();
+  try { await loadPeer(); } catch(e){ leave(true); toast('Working together needs an internet connection.'); return; }
+  const p = new Peer({ debug:0 }); NET.peer = p;
+  p.on('open', () => { const c = p.connect(pid(code), { reliable:true, serialization:'json' }); wire(c); c.on('open', () => c.send({ t:'hello', id:ME.id, name:myName(), color:ME.color })); });
+  p.on('error', err => { if (err.type === 'peer-unavailable'){ leave(true); toast(`No shared world with the code ${code}.`); return; } if (!NET.conns.size){ leave(true); toast('Could not connect. Try again.'); } });
+}
+function wire(c){
+  c.on('open', () => { NET.conns.add(c); NET.state = 'live'; netStatus(); if (dlg.open && dlg._together) showTogether(); });
+  c.on('data', m => onMsg(m, c));
+  c.on('close', () => {
+    NET.conns.delete(c);
+    if (c._who){ const n = peers[c._who] ? peers[c._who].name : 'Your partner'; delete peers[c._who]; if (NET.host) bcast({ t:'bye', id:c._who }); toast(`${n} left.`); }
+    if (!NET.host){ leave(true); toast('The shared world was closed. Your world is still here.'); } else { NET.state = NET.conns.size ? 'live' : 'waiting'; netStatus(); }
+    if (dlg.open && dlg._together) showTogether();
+  });
+}
+function onMsg(m, c){
+  if (!m || typeof m !== 'object') return;
+  switch (m.t){
+    case 'set': { if (!Array.isArray(m.items)) return; const list = m.items.slice(0, 500).map(clean).filter(Boolean).filter(i => !(D && D.id === i.id)); put(list, false); m = { t:'set', items:list }; break; }
+    case 'del': { if (!Array.isArray(m.ids)) return; const ids = m.ids.slice(0, 500).map(String); drop(ids, false); m = { t:'del', ids }; break; }
+    case 'state': if (NET.host || !m.items || typeof m.items !== 'object') return; loadAll(Object.values(m.items)); undoS = []; redoS = []; undoBtns(); toast('Connected. You are both in the same world now.'); setView('fit'); return;
+    case 'hello': {
+      const id = String(m.id || '').slice(0, 40); if (!/^[\w-]+$/.test(id) || id === ME.id) return;
+      const known = peers[id]; peers[id] = { name:String(m.name || 'Partner').slice(0, 20), color:/^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#64748b' };
+      if (NET.host && !c._who) c._who = id;
+      if (!known) toast(`${peers[id].name} joined.`);
+      netStatus(); if (dlg.open && dlg._together) showTogether();
+      m = { t:'hello', id, name:peers[id].name, color:peers[id].color }; break;
+    }
+    case 'bye': { const id = String(m.id || ''); if (peers[id]){ toast(`${peers[id].name} left.`); delete peers[id]; netStatus(); } break; }
+    default: return;
+  }
+  if (NET.host) bcast(m, c);
+}
+function netStatus(){
+  const b = $('#togetherBtn'), l = $('#togetherLbl'), n = Object.keys(peers).length;
+  if (NET.state === 'off'){ l.textContent = 'Work together'; b.classList.add('primary'); }
+  else { b.classList.remove('primary'); l.textContent = NET.state === 'live' && n ? `Together · ${n + 1}` : NET.state === 'waiting' ? `Code ${NET.code}` : 'Connecting…'; }
+}
+function showTogether(){
+  dlg._together = true;
+  const names = [`<span class="person"><span class="dot" style="color:${ME.color}"></span>${esc(myName())} (you)</span>`].concat(Object.values(peers).map(p => `<span class="person"><span class="dot" style="color:${p.color}"></span>${esc(p.name)}</span>`)).join('');
+  const nameRow = `<label for="myName">Your name</label><input id="myName" name="name" maxlength="20" value="${esc(ME.name)}" placeholder="For example: Ana" autocomplete="off">`;
+  const setName = fd => { ME.name = String(fd.get('name') || '').trim().slice(0, 20); ls.set('l3d-name', ME.name); };
+  if (NET.state === 'off'){
+    openDlg(`<h2>Work together</h2><p>Two or more people move pieces in the same 3D world, each on their own device and with their own camera. No accounts needed.</p>${nameRow}
+      <div class="two"><section><h3>Start a shared world</h3><p>Share the world you have now and get a code.</p><button class="btn primary" value="host">Start</button></section>
+      <section><h3>Join a partner</h3><p>Type your partner's code. Their world will replace yours.</p><input name="code" maxlength="7" placeholder="Code" autocomplete="off" aria-label="Partner's code" style="text-transform:uppercase;letter-spacing:.12em;font-weight:700"><button class="btn" value="join">Join</button></section></div>
+      <menu><button class="btn" value="cancel">Close</button></menu>`,
+      (v, fd) => { setName(fd); if (v === 'host'){ startHost(); setTimeout(showTogether, 0); return false; } if (v === 'join') join(fd.get('code')); });
+  } else {
+    const link = baseUrl(); link.searchParams.set('join', NET.code);
+    openDlg(`<h2>${NET.host ? 'Your shared world' : 'Working together'}</h2>
+      ${NET.host && NET.state !== 'starting' ? `<p>Your partner clicks <b>Work together</b> and types this code:</p><div class="code">${NET.code}</div><label for="joinLink">Or send this link</label><div class="row"><input id="joinLink" readonly value="${esc(link.toString())}"><button type="button" class="btn" data-copy="#joinLink" style="flex:0 0 auto">Copy</button></div>` : NET.state === 'starting' ? '<p>Getting a code…</p>' : ''}
+      <div class="people">${names}</div>${nameRow}
+      <menu><button class="btn" value="rename">Save name</button><button class="btn" value="leave">${NET.host ? 'Stop sharing' : 'Leave'}</button><button class="btn primary" value="cancel">Done</button></menu>`,
+      (v, fd) => { if (v === 'leave'){ leave(); return; } if (v === 'rename'){ setName(fd); bcast({ t:'hello', id:ME.id, name:myName(), color:ME.color }); toast('Name saved.'); setTimeout(showTogether, 0); return false; } });
+  }
+}
+$('#togetherBtn').onclick = showTogether;
+function joinPrompt(code){
+  dlg._together = true;
+  openDlg(`<h2>Join a shared world</h2><p>You are joining the world <b>${esc(code)}</b>. Your partner's world will replace yours.</p>
+    <label for="joinName">Your name</label><input id="joinName" name="name" maxlength="20" value="${esc(ME.name)}" placeholder="For example: Ana" autocomplete="off" autofocus>
+    <menu><button class="btn primary" value="join">Join</button><button class="btn" value="cancel">Not now</button></menu>`,
+    (v, fd) => { if (v !== 'join') return; ME.name = String(fd.get('name') || '').trim().slice(0, 20); ls.set('l3d-name', ME.name); join(code); });
+}
+window.addEventListener('beforeunload', () => { if (NET.peer) try { NET.peer.destroy(); } catch(e){} });
+
+/* ---------- the loop and start up ---------- */
+renderer.setAnimationLoop(() => {
+  if (camAnim){
+    const k = Math.min(1, (performance.now() - camAnim.t0)/450), e = k < .5 ? 2*k*k : 1 - Math.pow(-2*k + 2, 2)/2;
+    camera.position.lerpVectors(camAnim.p0, camAnim.p1, e); controls.target.lerpVectors(camAnim.q0, camAnim.q1, e);
+    if (k >= 1) camAnim = null;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  if (S.names) updateLabels();
+});
+async function boot(){
+  buildTray(); syncToggles(); undoBtns(); netStatus();
+  const h = location.hash.match(/[#&]w=([^&]+)/);
+  let started = false;
+  if (h){ try { loadAll(await decodeWorld(h[1])); started = true; } catch(e){ toast('That world link could not be opened.'); } }
+  if (!started){ try { const saved = JSON.parse(ls.get('l3d-world-v1') || '[]'); if (Array.isArray(saved)) loadAll(saved); } catch(e){} }
+  const j = String(params.get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (j){ const u = baseUrl(); history.replaceState(null, '', u.toString() + location.hash); joinPrompt(j); }
+  $('#loading').remove();
+  window.__live3dReady = true;
+  window.__L3D = { S, objs, solidOf, baseOf, act, put, drop, sync, setView, newItem, camera, controls, scene, renderer, stackY, blockDims };   // for testing
+}
+boot();
+</script>
+</body>
+</html>
