@@ -121,7 +121,7 @@ dialog .btn{border-color:var(--line)}
 .help li{margin:0 0 6px}.help ul{padding-left:18px;margin:0 0 8px}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;background:#111827;color:#fff;padding:10px 16px;border-radius:99px;font-size:13.5px;font-weight:600;transition:.2s;z-index:50;max-width:calc(100% - 32px);text-align:center}
 #toast.show{opacity:1;transform:translateX(-50%)}
-@media (max-width:1240px){#tools .lbl,#togetherLbl{display:none}}
+@media (max-width:1240px){#tools .lbl,#togetherLbl,#clearBtn .lbl{display:none}}
 @media (max-width:900px){.lbl{display:none}.btn{padding:0 8px}}
 @media (max-width:720px){
   main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 168px}
@@ -154,6 +154,7 @@ dialog .btn{border-color:var(--line)}
   </div>
   <div class="spacer"></div>
   <button class="btn solo" id="clearBtn" title="Clear the world"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4h4v2M5.5 6l.8 10h7.4l.8-10"/></svg><span class="lbl">Clear</span></button>
+  <button class="btn solo" id="openBtn" title="Open a world file you saved"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V4.5a1 1 0 011-1h4l1.5 2h7.5a1 1 0 011 1V8"/><path d="M2.5 16V8h15l-1.6 8z"/></svg><span class="lbl">Open</span></button>
   <button class="btn solo" id="saveBtn" title="Save your work"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9.5M6 8.8l4 4 4-4M4 16h12"/></svg><span class="lbl">Save</span></button>
   <button class="btn primary" id="togetherBtn" title="Work in the same world with a partner"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2.1"/><path d="M2.5 16c.6-2.8 2.4-4.2 4.5-4.2s3.9 1.4 4.5 4.2M12 12.3c.6-.3 1.3-.5 2-.5 1.8 0 3.2 1.2 3.6 3.6"/></svg><span id="togetherLbl">Work together</span></button>
   <button class="btn solo" id="helpBtn" title="How to use" aria-label="How to use"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10" cy="10" r="7.2"/><path d="M8 8a2 2 0 113 1.7c-.7.4-1 .9-1 1.6"/><circle cx="10" cy="14.2" r=".6" fill="currentColor"/></svg></button>
@@ -1574,6 +1575,7 @@ $('#helpBtn').onclick = () => openDlg(`<h2>How to use Live 3D</h2><div class="he
   <li><b>Values:</b> shows faces, edges and vertices of the selected solid, and checks F + V − E = 2. For blocks it shows the expression.</li>
   <li><b>Origami:</b> select the square paper and mark a fold line: <b>Through 2 points</b>, <b>Point onto point</b> (the perpendicular bisector, so one point lands on the other), <b>Angle bisector</b> (click A, the vertex B, then C) or a <b>midline</b>. Points snap to vertices and midpoints. After <b>Open flat</b>, click any crease line to fold on it (the matching valley or mountain fold is highlighted). Then choose <b>Valley fold</b> (up and over toward you) or <b>Mountain fold</b> (under, away from you). <b>Crease pattern</b> opens the square to show every crease.</li>
   <li><b>Soma cube and 3D pentominoes:</b> drag the pieces in; they snap to whole cubes and rest on whatever is under them. Turn, Tip forward and Roll sideways give every position. <b>One color</b> / <b>Separate colors</b> switches all pieces; with One color, pick the color (teal to start, or any color). Build the 3 × 3 × 3 cube with the 7 Soma pieces, or a box (3 × 4 × 5, 2 × 5 × 6, 2 × 3 × 10) with the 12 pentominoes — a message tells you when it is complete.</li>
+  <li><b>Save and Open:</b> Save → Save a world file. Chrome and Edge ask where to put it; otherwise it goes to your Downloads folder (named like live-3d-world-2026-11-19.json). Open (top bar) loads a world file again.</li>
   <li><b>Tools:</b> Move (V) picks up pieces, Hand (H) only spins the camera, Pen (P) draws on pieces and the floor, Text (T) adds a note, Eraser (E) removes pen marks and notes.</li>
   <li><b>3D algebra blocks:</b> Flip for the negative side, Turn to swing it round, Tip over to stand it another way.</li>
   <li><b>Work together:</b> one person starts and gets a code; the partner types it. Each person moves their own camera; the pieces are shared.</li></ul></div>
@@ -1582,6 +1584,18 @@ $('#helpBtn').onclick = () => openDlg(`<h2>How to use Live 3D</h2><div class="he
 /* ---------- save: picture, file, link ---------- */
 function download(blob, name){ const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }
 const today = () => new Date().toISOString().slice(0, 10);
+// Chrome and Edge ask where to save; other browsers (and pages inside slides) save to the Downloads folder
+async function saveBlob(blob, name, desc, mime, ext){
+  if (window.showSaveFilePicker){
+    try {
+      const h = await window.showSaveFilePicker({ suggestedName:name, types:[{ description:desc, accept:{ [mime]:[ext] } }] });
+      const w = await h.createWritable(); await w.write(blob); await w.close();
+      toast(`Saved as ${h.name} in the folder you chose.`); return;
+    } catch(e){ if (e && e.name === 'AbortError') return; }
+  }
+  download(blob, name); toast(`Saved to your Downloads folder as ${name}.`);
+}
+$('#openBtn').onclick = () => $('#fileIn').click();
 const b64u = bytes => { let s = ''; bytes.forEach(b => s += String.fromCharCode(b)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
 const unb64u = str => Uint8Array.from(atob(str.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 const compact = () => Object.values(S.items).map(i => { const o = { ...i }; for (const k of ['x','y','z','ry','t','u']) if (typeof o[k] === 'number') o[k] = Math.round(o[k]*1000)/1000; return o; });
@@ -1598,13 +1612,13 @@ async function decodeWorld(s){
 function baseUrl(){ const u = new URL(location.href); u.hash = ''; u.searchParams.delete('join'); return u; }
 $('#saveBtn').onclick = () => openDlg(`<h2>Save your work</h2><div class="saves">
     <button class="saveopt" value="png"><b>Save as a picture</b><span>A PNG of what the camera shows.</span></button>
-    <button class="saveopt" value="file"><b>Save a world file</b><span>Keep working later: open it again with the button below.</span></button>
+    <button class="saveopt" value="file"><b>Save a world file</b><span>Keep working later: open it again with the Open button at the top.</span></button>
     <button class="saveopt" value="open"><b>Open a world file</b><span>Load a world you saved. It replaces this one${NET.conns.size ? ' for everyone' : ''}.</span></button>
     <button class="saveopt" value="link"><b>Copy a world link</b><span>A link that opens this world, for slides or Google Classroom.</span></button></div>
   <p style="margin-top:12px;font-size:13px">This browser also keeps the world while you work.</p><menu><button class="btn" value="cancel">Close</button></menu>`,
   v => {
-    if (v === 'png'){ S.sel = null; sync(); renderer.render(scene, camera); canvas.toBlob(b => { if (b){ download(b, `live-3d-${today()}.png`); toast('Picture saved.'); } }, 'image/png'); }
-    else if (v === 'file'){ download(new Blob([JSON.stringify({ app:'live-3d', v:1, items:compact() })], { type:'application/json' }), `live-3d-world-${today()}.json`); toast('World file saved.'); }
+    if (v === 'png'){ S.sel = null; sync(); renderer.render(scene, camera); canvas.toBlob(b => { if (b) saveBlob(b, `live-3d-${today()}.png`, 'Picture', 'image/png', '.png'); }, 'image/png'); }
+    else if (v === 'file') saveBlob(new Blob([JSON.stringify({ app:'live-3d', v:1, items:compact() })], { type:'application/json' }), `live-3d-world-${today()}.json`, 'Live 3D world', 'application/json', '.json');
     else if (v === 'open') $('#fileIn').click();
     else if (v === 'link') setTimeout(async () => {
       const u = baseUrl(); u.hash = 'w=' + await encodeWorld();
