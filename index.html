@@ -248,10 +248,10 @@ const SHAPES = {
   cone:   { name:'Cone',     grp:'round', curved:true, pts:() => [...ngon(SEG, 1.2, 0, 0), [0, 2.4, 0]] },
   cyl:    { name:'Cylinder', grp:'round', curved:true, pts:() => [...ngon(SEG, 1.05, 0, 0), ...ngon(SEG, 1.05, 2.2, 0)] },
   // glasses for comparing: all the same height (2.4) and the same width at the top (2.4); the cone and pyramid stand on their points
-  gcyl:   { name:'Cylinder glass', grp:'glass', glass:'cyl', curved:true, pts:() => [...ngon(SEG, 1.2, 0, 0), ...ngon(SEG, 1.2, 2.4, 0)] },
-  gcone:  { name:'Cone glass', grp:'glass', glass:'cone', curved:true, stand:true, pts:() => [...ngon(SEG, 1.2, 2.4, 0), [0, 0, 0]] },
-  gsq:    { name:'Square prism glass', grp:'glass', glass:'prism', pts:() => [...ngon(4, 1.2*Math.SQRT2, 0, Math.PI/4), ...ngon(4, 1.2*Math.SQRT2, 2.4, Math.PI/4)] },
-  gpyr:   { name:'Square pyramid glass', grp:'glass', glass:'pyr', stand:true, pts:() => [...ngon(4, 1.2*Math.SQRT2, 2.4, Math.PI/4), [0, 0, 0]] }
+  gcyl:   { name:'Cylinder', grp:'glass', glass:'cyl', curved:true, pts:() => [...ngon(SEG, 1.2, 0, 0), ...ngon(SEG, 1.2, 2.4, 0)] },
+  gcone:  { name:'Cone', grp:'glass', glass:'cone', curved:true, stand:true, pts:() => [...ngon(SEG, 1.2, 2.4, 0), [0, 0, 0]] },
+  gsq:    { name:'Cube', grp:'glass', glass:'prism', pts:() => [...ngon(4, 1.2*Math.SQRT2, 0, Math.PI/4), ...ngon(4, 1.2*Math.SQRT2, 2.4, Math.PI/4)] },   // as tall as it is wide: a cube
+  gpyr:   { name:'Square pyramid', grp:'glass', glass:'pyr', stand:true, pts:() => [...ngon(4, 1.2*Math.SQRT2, 2.4, Math.PI/4), [0, 0, 0]] }
 };
 // the outward planes (n · p = d) of the convex hull of a point set
 function hullPlanes(pts){
@@ -1367,7 +1367,7 @@ canvas.addEventListener('pointerdown', e => {
     const id = pickAt(e), to = id && S.items[id];
     const from = POUR; POUR = null; canvas.style.cursor = '';
     if (to && to.k === 'solid' && id !== from){ e.stopImmediatePropagation(); doPour(from, id); return; }
-    toast('Pouring stopped. Choose Pour into… again, then click a glass or solid.');
+    toast('Pouring stopped. Choose Pour into… again, then click a solid.');
   }
   // while marking a fold line, a click on the paper places the next point
   if (MARK && !markReady()){
@@ -1580,7 +1580,7 @@ function updateBar(){
     const lvl = Math.round(waterLevel(it, it.w || 0)/waterTable(it).H*100);
     h += `<label class="slider">Water <input type="range" min="0" max="100" step="1" value="${lvl}" data-water="1" aria-label="Water height"><output>${lvl}%</output></label>`;
     h += `<div class="acts">${glass ? '' : abtn('face','face','Next face down')}${glass ? '' : abtn('glass','glass', it.gl ? 'Solid look' : 'See-through')}${it.w > 0 ? abtn('pour','pour','Pour into…') + abtn('wempty','cancel','Empty') : ''}${abtn('turn','turn','Turn')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
-    if (it.w > 0 || glass) h += `<div class="info mark">${it.w > 0 ? waterText(it) : `Holds ${fmtV(capacity(it))} cubic units. Move Water to fill it, or pour water in from another glass.`}</div>`;
+    if (it.w > 0 || glass) h += `<div class="info mark">${it.w > 0 ? waterText(it) : `Holds ${fmtV(capacity(it))} cubic units. Move Water to fill it, or pour water in from another solid.`}</div>`;
   } else {
     h += `<div class="acts">${abtn('flip','flip','Flip')}${abtn('turn','turn','Turn')}${abtn('tip','tip','Tip over')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
   }
@@ -1628,9 +1628,9 @@ function solidVolumeText(it){
     // glasses: the same height and the same top, so their volumes compare directly
     const g = SHAPES[it.s].glass, r = Math.max(...P.verts.map(v => Math.hypot(v[0], v[2])))/U, side = (Math.max(...P.verts.map(v => v[0])) - Math.min(...P.verts.map(v => v[0])))/U;
     return { cyl:`Holds π × r² × h = π × ${fmtV(r)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*r*r*H)}</b> cubic units`,
-             cone:`Holds ⅓ × π × r² × h = ⅓ × π × ${fmtV(r)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*r*r*H/3)}</b> cubic units (⅓ of the cylinder glass)`,
-             prism:`Holds s² × h = ${fmtV(side)}² × ${fmtV(H)} = <b>${fmtV(side*side*H)}</b> cubic units`,
-             pyr:`Holds ⅓ × s² × h = ⅓ × ${fmtV(side)}² × ${fmtV(H)} = <b>${fmtV(side*side*H/3)}</b> cubic units (⅓ of the square prism glass)` }[g];
+             cone:`Holds ⅓ × π × r² × h = ⅓ × π × ${fmtV(r)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*r*r*H/3)}</b> cubic units (⅓ of the cylinder in Volume)`,
+             prism:`Holds s³ = ${fmtV(side)}³ = <b>${fmtV(side*side*H)}</b> cubic units`,
+             pyr:`Holds ⅓ × s² × h = ⅓ × ${fmtV(side)}² × ${fmtV(H)} = <b>${fmtV(side*side*H/3)}</b> cubic units (⅓ of the cube in Volume)` }[g];
   }
   if (it.s === 'cyl') s = `Volume = π × r² × h = π × ${fmtV(R)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*R*R*H)}</b> cubic units`;
   else if (it.s === 'cone'){
@@ -1724,7 +1724,7 @@ bar.addEventListener('click', e => {
     return;
   }
   if (a === 'swap'){ if (MARK && MARK.fold){ MARK.fold.s *= -1; checkMark(); dirty(); } return; }
-  if (a === 'pour'){ POUR = it.id; canvas.style.cursor = 'copy'; toast('Now click the glass or solid to pour the water into (Esc to stop).'); return; }
+  if (a === 'pour'){ POUR = it.id; canvas.style.cursor = 'copy'; toast('Now click the solid to pour the water into (Esc to stop).'); return; }
   if (a === 'wempty'){ act(() => { const n = { ...it }; delete n.w; put([n]); }); return; }
   if (a === 'glass'){ act(() => { const n = { ...it }; if (n.gl) delete n.gl; else n.gl = true; put([n]); }); return; }
   if (a === 'vbfill'){ vbFillTo(it.id, 1); return; }
