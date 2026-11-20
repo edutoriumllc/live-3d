@@ -90,6 +90,11 @@ main{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:0}
 .acts-lbl{font-size:12px;font-weight:700;color:var(--muted);align-self:center;padding:0 4px}
 .info.mark{text-align:left;line-height:1.45}
 .slider{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;padding:0 6px}
+.vbsteps{gap:4px 10px}
+.vbstep{display:inline-flex;align-items:center;gap:2px}
+#actionbar .vbstep .acts-lbl{width:auto;padding:0 4px 0 0}
+.vbstep b{min-width:20px;text-align:center;font-size:15px}
+.act.vbb{width:30px;justify-content:center;padding:0;font-size:18px;font-weight:800;background:var(--chip)}
 .slider input{flex:1;min-width:140px;accent-color:var(--accent)}
 .slider output{min-width:38px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
 .info{font-size:13px;text-align:center;border-top:1px solid var(--line);padding-top:6px;font-variant-numeric:tabular-nums}
@@ -241,7 +246,12 @@ const SHAPES = {
   pyr5:   { name:'Pentagonal pyramid', grp:'pyr', pts:() => [...ngon(5, 1.3, 0), [0, 2.2, 0]] },
   pyr6:   { name:'Hexagonal pyramid',  grp:'pyr', pts:() => [...ngon(6, 1.25, 0), [0, 2.2, 0]] },
   cone:   { name:'Cone',     grp:'round', curved:true, pts:() => [...ngon(SEG, 1.2, 0, 0), [0, 2.4, 0]] },
-  cyl:    { name:'Cylinder', grp:'round', curved:true, pts:() => [...ngon(SEG, 1.05, 0, 0), ...ngon(SEG, 1.05, 2.2, 0)] }
+  cyl:    { name:'Cylinder', grp:'round', curved:true, pts:() => [...ngon(SEG, 1.05, 0, 0), ...ngon(SEG, 1.05, 2.2, 0)] },
+  // glasses for comparing: all the same height (2.4) and the same width at the top (2.4); the cone and pyramid stand on their points
+  gcyl:   { name:'Cylinder glass', grp:'glass', glass:'cyl', curved:true, pts:() => [...ngon(SEG, 1.2, 0, 0), ...ngon(SEG, 1.2, 2.4, 0)] },
+  gcone:  { name:'Cone glass', grp:'glass', glass:'cone', curved:true, stand:true, pts:() => [...ngon(SEG, 1.2, 2.4, 0), [0, 0, 0]] },
+  gsq:    { name:'Square prism glass', grp:'glass', glass:'prism', pts:() => [...ngon(4, 1.2*Math.SQRT2, 0, Math.PI/4), ...ngon(4, 1.2*Math.SQRT2, 2.4, Math.PI/4)] },
+  gpyr:   { name:'Square pyramid glass', grp:'glass', glass:'pyr', stand:true, pts:() => [...ngon(4, 1.2*Math.SQRT2, 2.4, Math.PI/4), [0, 0, 0]] }
 };
 // the outward planes (n · p = d) of the convex hull of a point set
 function hullPlanes(pts){
@@ -296,7 +306,7 @@ function baseOf(s){
   return baseCache.get(s);
 }
 // the largest truncation: corners of a polyhedron up to halfway along the edges; the cone's tip up to 90% of its height
-const truncMax = s => s === 'cone' ? 0.9 : s === 'cyl' ? 0 : 0.5;
+const truncMax = s => SHAPES[s].glass ? 0 : s === 'cone' ? 0.9 : s === 'cyl' ? 0 : 0.5;   // glasses are not cut
 function truncPlanes(s, t){
   if (t <= 0) return [];
   const b = baseOf(s);
@@ -320,7 +330,8 @@ function solidOf(s, bottom, t){
   const b = baseOf(s), planes = [...b.planes, ...truncPlanes(s, t)], poly = polyFromPlanes(planes);
   let root = poly.faces.findIndex(f => f.plane === bottom);
   if (root < 0) root = poly.faces.findIndex(f => f.plane === b.bottom);
-  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...poly.faces[root].n), new THREE.Vector3(0, -1, 0));
+  // a glass that stands on its point keeps the way it was made; other solids turn so the chosen face is on the floor
+  const q = SHAPES[s].stand ? new THREE.Quaternion() : new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...poly.faces[root].n), new THREE.Vector3(0, -1, 0));
   const rot = p => { const v = new THREE.Vector3(...p).applyQuaternion(q); return [v.x, v.y, v.z]; };
   let verts = poly.verts.map(rot);
   const minY = Math.min(...verts.map(v => v[1])), xs = verts.map(v => v[0]), zs = verts.map(v => v[2]);
@@ -636,14 +647,19 @@ function faceColor(sd, fi){
   if (sd.curved) return sd.isCap(fi) ? CAP_COL : CURVE_COL;
   return FACE_COL[f.vi.length] || '#B0BEC5';
 }
+const isGlassy = it => !!(SHAPES[it.s].glass || it.gl || it.w > 0);   // see-through: a glass, or a solid with water (or set to see-through)
 function buildSolid(it){
-  const sd = solidOf(it.s, it.bottom, it.t || 0), g = new THREE.Group(), faceObjs = [];
+  const sd = solidOf(it.s, it.bottom, it.t || 0), g = new THREE.Group(), faceObjs = [], glassy = isGlassy(it), open = !!SHAPES[it.s].glass;
   sd.faces.forEach((f, fi) => {
     const pts = f.vi.map(i => sd.verts[i]), pos = [];
     for (let k = 1; k < pts.length - 1; k++) pos.push(...pts[0], ...pts[k], ...pts[k + 1]);
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color:faceColor(sd, fi), side:THREE.DoubleSide, roughness:.65, metalness:0, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1 });
+    const top = open && f.n[1] > 0.99;   // a glass is open at the top
+    const mat = glassy
+      ? new THREE.MeshStandardMaterial({ color:open ? 0xdbeafe : faceColor(sd, fi), side:THREE.DoubleSide, roughness:.15, metalness:0, transparent:true, opacity:top ? 0 : (open ? .22 : .3), depthWrite:false })
+      : new THREE.MeshStandardMaterial({ color:faceColor(sd, fi), side:THREE.DoubleSide, roughness:.65, metalness:0, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1 });
     const mesh = new THREE.Mesh(geo, mat); mesh.matrixAutoUpdate = false; mesh.userData.id = it.id;
+    if (glassy) mesh.renderOrder = 2;
     // outline only the real edges (not the many seams on a round surface)
     const seg = [];
     f.vi.forEach((a, k) => {
@@ -656,9 +672,59 @@ function buildSolid(it){
     const line = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color:0x1f2937 })); line.matrixAutoUpdate = false;
     g.add(mesh, line); faceObjs.push({ mesh, line }); pickables.push(mesh);
   });
-  g.userData = { sd, faceObjs, key:it.s + '|' + it.bottom + '|' + (it.t || 0).toFixed(3) };
+  g.userData = { sd, faceObjs, key:shapeKey(it) };
   applyUnfold(g, it.u || 0);
+  const water = it.w > 0 ? buildWater(it) : null;
+  if (water){ g.add(water); g.userData.water = water; water.visible = !(it.u > 0); }
   return g;
+}
+/* Water: a solid holds water up to a level. The water is the solid cut off flat at that level (its own planes plus one more),
+   and how much a solid holds at each height is worked out once per shape (48 heights) to turn volumes into levels and back. */
+const waterCache = new Map();
+const solidPlanes = sd => sd.faces.map(f => ({ n:f.n, d:V.dot(f.n, sd.verts[f.vi[0]]) }));
+function waterTable(it){
+  const key = it.s + '|' + it.bottom + '|' + (it.t || 0).toFixed(3);
+  if (!waterCache.has(key)){
+    const sd = solidOf(it.s, it.bottom, it.t || 0), P = solidPlanes(sd), H = sd.height, vol = [0];
+    for (let k = 1; k <= 48; k++){ const p = polyFromPlanes([...P, { n:[0, 1, 0], d:H*k/48 }]); vol.push(p.verts.length >= 4 ? polyVolume(p.verts, p.faces)/BU**3 : 0); }
+    waterCache.set(key, { H, vol });
+  }
+  return waterCache.get(key);
+}
+const capacity = it => waterTable(it).vol[48];
+// the height the water reaches for a volume (between two worked-out heights the volume grows evenly)
+function waterLevel(it, v){
+  const { H, vol } = waterTable(it); if (!(v > 0)) return 0; if (v >= vol[48]) return H;
+  let k = 0; while (k < 47 && vol[k + 1] < v) k++;
+  return H*(k + (v - vol[k])/((vol[k + 1] - vol[k]) || 1))/48;
+}
+function waterVolumeAt(it, level){ const { H, vol } = waterTable(it), x = Math.max(0, Math.min(48, level/H*48)), k = Math.min(47, Math.floor(x)); return vol[k] + (vol[k + 1] - vol[k])*(x - k); }
+function buildWater(it){
+  const sd = solidOf(it.s, it.bottom, it.t || 0), lv = waterLevel(it, it.w); if (lv <= 1e-4) return null;
+  const p = polyFromPlanes([...solidPlanes(sd), { n:[0, 1, 0], d:lv }]); if (p.verts.length < 4) return null;
+  const pos = [];
+  for (const f of p.faces){ const q = f.vi.map(i => p.verts[i]); for (let k = 1; k < q.length - 1; k++) pos.push(...q[0], ...q[k], ...q[k + 1]); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color:0x2f80ed, roughness:.2, transparent:true, opacity:.62, side:THREE.DoubleSide, depthWrite:false }));
+  m.renderOrder = 1; m.userData.id = it.id; pickables.push(m);
+  return m;
+}
+function waterText(it){
+  const cap = capacity(it), w = Math.min(it.w || 0, cap), { H } = waterTable(it), lv = waterLevel(it, w);
+  return `Water: <b>${fmtV(w)}</b> of ${fmtV(cap)} cubic units (<b>${Math.round(w/cap*100)}%</b> full) · water height ${fmtV(lv/BU)} of ${fmtV(H/BU)} units (${Math.round(lv/H*100)}% of the way up)`;
+}
+// pouring: all the water that fits goes from one solid into another
+let POUR = null;
+function doPour(fromId, toId){
+  const a = S.items[fromId], b = S.items[toId]; if (!a || !b) return;
+  const space = Math.max(0, capacity(b) - (b.w || 0)), amt = Math.min(a.w || 0, space);
+  if (amt <= 1e-6){ toast(`The ${solidName(b).toLowerCase()} is already full.`); return; }
+  const na = { ...a, w:Math.round(((a.w || 0) - amt)*1000)/1000 }, nb = { ...b, w:Math.round(((b.w || 0) + amt)*1000)/1000 };
+  if (!(na.w > 1e-6)) delete na.w;
+  act(() => put([na, nb])); S.sel = b.id; dirty();
+  const left = na.w || 0, H = waterTable(nb).H;
+  toast(`Poured ${fmtV(amt)} cubic units. The ${solidName(b).toLowerCase()} is now ${Math.round(nb.w/capacity(nb)*100)}% full, and its water is ${Math.round(waterLevel(nb, nb.w)/H*100)}% of the way up.` +
+        (left > 1e-6 ? ` It's full: ${fmtV(left)} cubic units stayed in the first one.` : ''));
 }
 // swing every face about its hinge: u = 0 the solid, u = 1 the flat net on the floor
 function applyUnfold(g, u){
@@ -765,15 +831,71 @@ function buildSoma(it){
   g.userData = { key:shapeKey(it) };
   return g;
 }
+/* Volume rectangular prism (item kind 'vbox'): an open rectangular prism of length × width × height unit cubes (1 unit = BU, the size of the "1" algebra block).
+   f (0–1) = how full it is; cubes go in a row along the length, then row by row across the width (one layer), then layer on layer. */
+const VB_COLS = ['#4F95DB', '#9CC3F0'];   // layers alternate, so they can be counted
+function buildVbox(it){
+  const g = new THREE.Group(), U = BU, L = it.l*U, W = it.w*U, H = it.h*U;
+  // the box: see-through walls (they can be picked up) and dark edges
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(L, H, W), new THREE.MeshBasicMaterial({ color:0x93c5fd, transparent:true, opacity:.13, depthWrite:false }));
+  shell.position.y = H/2; shell.userData.id = it.id; pickables.push(shell);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(shell.geometry), new THREE.LineBasicMaterial({ color:0x1e3a8a })); edges.position.y = H/2;
+  // unit squares on the bottom of the box
+  const seg = [];
+  for (let i = 0; i <= it.l; i++) seg.push(-L/2 + i*U, .006, -W/2, -L/2 + i*U, .006, W/2);
+  for (let j = 0; j <= it.w; j++) seg.push(-L/2, .006, -W/2 + j*U, L/2, .006, -W/2 + j*U);
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+  g.add(shell, edges, new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color:0x64748b })));
+  const n = vbCount(it);
+  if (n){
+    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(U*.94, U*.94, U*.94), new THREE.MeshStandardMaterial({ color:0xffffff, roughness:.55 }), n);
+    const m = new THREE.Matrix4(), c = new THREE.Color();
+    for (let i = 0; i < n; i++){
+      const x = i % it.l, z = Math.floor(i/it.l) % it.w, y = Math.floor(i/(it.l*it.w));
+      m.makeTranslation(-L/2 + (x + .5)*U, (y + .5)*U, -W/2 + (z + .5)*U); im.setMatrixAt(i, m); im.setColorAt(i, c.set(VB_COLS[y % 2]));
+    }
+    im.userData.id = it.id; pickables.push(im); g.add(im);
+  }
+  g.userData = { key:shapeKey(it) };
+  return g;
+}
+const vbCount = it => Math.round((it.f || 0)*it.l*it.w*it.h);
+// the counting, step by step: a row, a layer, the layers, then the formula
+function vboxInfo(it){
+  const n = vbCount(it), A = it.l*it.w, V = A*it.h, full = Math.floor(n/A), rest = n - full*A;
+  let s = `Cubes in the prism: <b>${n}</b> of ${V}`;
+  s += `<br>1 row = <b>${it.l}</b> cubes · 1 layer = ${it.l} × ${it.w} = <b>${A}</b> cubes`;
+  if (n) s += `<br>${full ? `${full} full layer${full === 1 ? '' : 's'} = ${full} × ${A} = ${full*A}` : 'No full layer yet'}${rest ? ` + ${rest} more` : ''}`;
+  s += `<br><b>Volume = length × width × height = ${it.l} × ${it.w} × ${it.h} = ${V} cubic units</b>`;
+  return s;
+}
+// fill (or empty) the box a cube at a time, so the rows and layers can be watched
+let vbAnim = null;
+function vbFillTo(id, target){
+  const it = S.items[id]; if (!it) return;
+  const pre = begin(), from = vbCount(it), to = Math.round(target*it.l*it.w*it.h), t0 = performance.now(), ms = Math.min(2400, 120 + Math.abs(to - from)*40);
+  if (vbAnim) cancelAnimationFrame(vbAnim);
+  const step = () => {
+    const cur = S.items[id]; if (!cur){ vbAnim = null; return; }
+    const k = Math.min(1, (performance.now() - t0)/ms), n = Math.round(from + (to - from)*k);
+    cur.f = n/(cur.l*cur.w*cur.h); dirty();
+    if (k < 1) vbAnim = requestAnimationFrame(step);
+    else { vbAnim = null; put([cur]); commit(pre); }
+  };
+  vbAnim = requestAnimationFrame(step);
+}
 function shapeKey(it){
+  if (it.k === 'vbox') return 'v' + it.l + 'x' + it.w + 'x' + it.h + ':' + vbCount(it);
   if (it.k === 'soma') return 's' + (it.set || 's') + it.p + (it.m || ID3).join('') + (somaOne ? somaCol : 0);
   if (it.k === 'ink') return 'i' + it.c + it.pts.length;
   if (it.k === 'text') return 't' + it.c + it.s;
   if (it.k === 'paper') return 'p' + (it.c || 0) + (it.cp ? 'c' : '') + JSON.stringify(it.folds) + JSON.stringify(it.marks || []);
-  return it.k === 'solid' ? it.s + '|' + it.bottom + '|' + (it.t || 0).toFixed(3) : 'b' + it.t + (it.o || 0) + (it.sw ? 1 : 0) + (it.neg ? 1 : 0);
+  if (it.k === 'solid') return it.s + '|' + it.bottom + '|' + (it.t || 0).toFixed(3) + '|' + (isGlassy(it) ? 'g' : '') + '|' + Math.round((it.w || 0)*1000);
+  return 'b' + it.t + (it.o || 0) + (it.sw ? 1 : 0) + (it.neg ? 1 : 0);
 }
 function itemName(it){
   if (it.k === 'solid') return solidName(it);
+  if (it.k === 'vbox') return `Rectangular prism ${it.l} × ${it.w} × ${it.h}`;
   if (it.k === 'soma') return PSETS[it.set || 's'].name + ' ' + pieceOf(it).n;
   if (it.k === 'paper') return it.cp ? 'Crease pattern' : !it.folds.length && it.marks ? 'Paper with creases' : it.folds.length ? `Folded paper (${it.folds.filter(f => !f.f).length} fold${it.folds.filter(f => !f.f).length === 1 ? '' : 's'})` : 'Square paper';
   return (it.neg ? '−' : '') + AB[it.t].t;
@@ -794,14 +916,16 @@ function sync(){
       disposeObj(g); g = null;
       if (canAnim){ g = buildPaperAnim(it, prev); objs[it.id] = g; scene.add(g); }
     }
-    if (!g){ g = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : it.k === 'ink' ? buildInk(it) : it.k === 'text' ? buildNote(it) : it.k === 'soma' ? buildSoma(it) : buildBlock(it); objs[it.id] = g; scene.add(g); }
+    if (!g){ g = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : it.k === 'ink' ? buildInk(it) : it.k === 'text' ? buildNote(it) : it.k === 'soma' ? buildSoma(it) : it.k === 'vbox' ? buildVbox(it) : buildBlock(it); objs[it.id] = g; scene.add(g); }
     if (it.k === 'ink') continue;
     if (it.k === 'text'){ g.position.set(it.x, it.y, it.z); continue; }
     if (it.k === 'soma') g.position.set(it.x*SU, it.y*SU, it.z*SU);
+    else if (it.k === 'vbox'){ g.position.set(it.x, 0, it.z); g.rotation.y = it.ry || 0; }
     else if (it.k === 'paper'){ g.position.set(it.x, 0, it.z); g.rotation.y = it.ry || 0; }
     else if (it.k === 'solid'){
       g.position.set(it.x, 0, it.z); g.rotation.y = it.ry || 0;
       if (Math.abs((g.userData.u ?? -1) - (it.u || 0)) > 1e-4) applyUnfold(g, it.u || 0);
+      if (g.userData.water) g.userData.water.visible = !(it.u > 0);   // water only shows while the solid is folded up
     } else {
       const [w, d, h] = blockDims(it); g.position.set(it.x + w/2, it.y + h/2, it.z + d/2);
     }
@@ -1144,8 +1268,14 @@ function clean(o){
     if (!Object.prototype.hasOwnProperty.call(SHAPES, o.s)) return null;
     const b = baseOf(o.s), it = { id, k:'solid', s:o.s, x:num(o.x, 0, -19, 19), z:num(o.z, 0, -19, 19), ry:num(o.ry, 0, -100, 100) };
     it.bottom = Math.round(num(o.bottom, b.bottom, 0, b.planes.length - 1));
-    it.t = num(o.t, 0, 0, truncMax(o.s)); it.u = num(o.u, 0, 0, 1);
+    it.t = num(o.t, 0, 0, truncMax(o.s)); it.u = SHAPES[o.s].glass ? 0 : num(o.u, 0, 0, 1);
+    if (+o.w > 0) it.w = num(o.w, 0, 0, 100000);   // water inside (cubic units)
+    if (o.gl) it.gl = true;                          // shown see-through
     return it;
+  }
+  if (o.k === 'vbox'){
+    const d = v => Math.round(num(v, 2, 1, 10));
+    return { id, k:'vbox', x:num(o.x, 0, -19, 19), z:num(o.z, 0, -19, 19), ry:num(o.ry, 0, -100, 100), l:d(o.l), w:d(o.w), h:d(o.h), f:num(o.f, 0, 0, 1) };
   }
   if (o.k === 'soma'){
     const set = o.set === 'p' ? 'p' : 's', n = PSETS[set].pieces.length;
@@ -1215,6 +1345,7 @@ function newItem(pid, at){
     return it;
   }
   if (pid === 'paper') return { id, k:'paper', x:snap(at.x), z:snap(at.z), ry:0, c:0, folds:[] };
+  if (pid === 'vbox') return { id, k:'vbox', x:snap(at.x), z:snap(at.z), ry:0, l:4, w:3, h:2, f:0 };
   if (pid.startsWith('pc-')){
     const [, set, p] = pid.split('-'), it = { id, k:'soma', set, p:+p, m:ID3.slice(), x:0, y:0, z:0 }, cells = somaCells(it);
     const w = Math.max(...cells.map(c => c[0])) + 1, d = Math.max(...cells.map(c => c[2])) + 1;
@@ -1231,6 +1362,13 @@ function flush(){ clearTimeout(pendT); pendT = 0; const l = [...pend].map(i => S
 canvas.addEventListener('pointerdown', e => {
   if (e.button !== 0 || D) return;
   if (toolDown(e)) return;
+  if (POUR){
+    // pouring: the next solid clicked gets the water
+    const id = pickAt(e), to = id && S.items[id];
+    const from = POUR; POUR = null; canvas.style.cursor = '';
+    if (to && to.k === 'solid' && id !== from){ e.stopImmediatePropagation(); doPour(from, id); return; }
+    toast('Pouring stopped. Choose Pour into… again, then click a glass or solid.');
+  }
   // while marking a fold line, a click on the paper places the next point
   if (MARK && !markReady()){
     const hp = paperPointAt(e);
@@ -1303,22 +1441,25 @@ const GROUPS = [
   { id:'prism', name:'Prisms',         tiles:['prism3','prism4','prism5','prism6'] },
   { id:'pyr',   name:'Pyramids',       tiles:['pyr3','pyr4','pyr5','pyr6'] },
   { id:'round', name:'Cone and cylinder', tiles:['cone','cyl'] },
+  { id:'volume', name:'Volume', tiles:['vbox','gcyl','gcone','gsq','gpyr'] },   // the unit-cube prism and the glasses (same height and top)
   { id:'origami', name:'Origami', tiles:['paper'] },
   { id:'soma', name:'Soma cube (7 pieces)', tiles:SOMA.map((_, i) => 'pc-s-' + i) },
   { id:'pent', name:'3D pentominoes (12 pieces)', tiles:PENT.map((_, i) => 'pc-p-' + i) },
   { id:'blocks', name:'3D algebra blocks', tiles:Object.keys(AB).map(t => 'ab-' + t) }
 ];
-const tileName = pid => pid.startsWith('pc-') ? (() => { const [, s, p] = pid.split('-'); return PSETS[s].pieces[+p].n; })() : pid === 'paper' ? 'Square paper' : pid.startsWith('ab-') ? AB[pid.slice(3)].t : SHAPES[pid].name;
+const tileName = pid => pid === 'vbox' ? 'Rectangular prism' : pid.startsWith('pc-') ? (() => { const [, s, p] = pid.split('-'); return PSETS[s].pieces[+p].n; })() : pid === 'paper' ? 'Square paper' : pid.startsWith('ab-') ? AB[pid.slice(3)].t : SHAPES[pid].name;
 // small pictures of each piece, drawn once by a second, off-screen 3D renderer
 function thumbnails(){
   const size = 144, r2 = new THREE.WebGLRenderer({ antialias:true, alpha:true, preserveDrawingBuffer:true }); r2.setSize(size, size, false);
   const sc = new THREE.Scene(); sc.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 1.7)); const l = new THREE.DirectionalLight(0xffffff, 1.4); l.position.set(5, 9, 7); sc.add(l);
   const cam = new THREE.PerspectiveCamera(32, 1, 0.1, 100), out = {};
   for (const g of GROUPS) for (const pid of g.tiles){
-    const it = pid.startsWith('pc-') ? { id:'t', k:'soma', set:pid.split('-')[1], p:+pid.split('-')[2], m:ID3.slice(), x:0, y:0, z:0 }
+    const it = pid === 'vbox' ? { id:'t', k:'vbox', x:0, z:0, ry:0, l:3, w:2, h:2, f:0.6 }
+      : pid.startsWith('pc-') ? { id:'t', k:'soma', set:pid.split('-')[1], p:+pid.split('-')[2], m:ID3.slice(), x:0, y:0, z:0 }
       : pid === 'paper' ? { id:'t', k:'paper', x:0, z:0, ry:0, c:0, folds:[] }
       : pid.startsWith('ab-') ? { id:'t', k:'block', t:pid.slice(3), o:0, x:0, y:0, z:0 } : { id:'t', k:'solid', s:pid, x:0, z:0, ry:0, bottom:baseOf(pid).bottom, t:0, u:0 };
-    const obj = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : it.k === 'soma' ? buildSoma(it) : buildBlock(it);
+    if (it.k === 'solid' && SHAPES[it.s].glass) it.w = Math.round(capacity(it)*0.6*1000)/1000;   // glasses are shown with some water in them
+    const obj = it.k === 'solid' ? buildSolid(it) : it.k === 'paper' ? buildPaper(it) : it.k === 'soma' ? buildSoma(it) : it.k === 'vbox' ? buildVbox(it) : buildBlock(it);
     if (it.k === 'block'){ const [w, d, h] = blockDims(it); obj.position.set(0, h/2, 0); }
     sc.add(obj);
     const box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), rad = box.getSize(new THREE.Vector3()).length()/2;
@@ -1374,26 +1515,41 @@ const ICON = {
   cp:'<rect x="3.5" y="3.5" width="13" height="13" rx="1"/><path d="M3.5 3.5l13 13M16.5 3.5l-13 13" stroke-dasharray="2 2"/>',
   color:'<circle cx="10" cy="10" r="6.5"/><path d="M10 3.5a6.5 6.5 0 000 13z" fill="currentColor"/>',
   cancel:'<path d="M5 5l10 10M15 5L5 15"/>',
-  roll:'<path d="M4 10a6 6 0 0110.5-4"/><path d="M14.8 3v3.2h-3.2"/><path d="M16 10a6 6 0 01-10.5 4"/><path d="M5.2 17v-3.2h3.2"/>'
+  roll:'<path d="M4 10a6 6 0 0110.5-4"/><path d="M14.8 3v3.2h-3.2"/><path d="M16 10a6 6 0 01-10.5 4"/><path d="M5.2 17v-3.2h3.2"/>',
+  pour:'<path d="M4 5h7l-1 9H5z"/><path d="M11 6.5c2 0 3.5 1 4 3"/><path d="M15.5 12v4" stroke-dasharray="1.5 1.5"/>',
+  glass:'<path d="M5 3h10l-1.5 14h-7z"/><path d="M6 9h8" />',
+  fill:'<path d="M3.5 7.5v9h13v-9"/><rect x="5.5" y="11" width="4" height="4" fill="currentColor"/><rect x="10.5" y="11" width="4" height="4" fill="currentColor"/><rect x="5.5" y="6" width="4" height="4"/>'
 };
 const ico = n => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 const abtn = (a, icon, label, extra = '') => `<button type="button" class="act ${extra}" data-act="${a}" title="${label}">${ico(icon)}<span class="lbl">${label}</span></button>`;
 let barSig = '', barId = null;
 function updateBar(){
   const it = S.sel && S.items[S.sel];
-  if (!it || (it.k !== 'solid' && it.k !== 'block' && it.k !== 'paper' && it.k !== 'soma')){ bar.hidden = true; barSig = ''; barId = null; return; }
+  if (!it || (it.k !== 'solid' && it.k !== 'block' && it.k !== 'paper' && it.k !== 'soma' && it.k !== 'vbox')){ bar.hidden = true; barSig = ''; barId = null; return; }
   const sig = JSON.stringify(it) + S.values + (MARK ? JSON.stringify([MARK.mode, MARK.pts, MARK.fold, MARK.err]) : '');
   if (sig === barSig) return;
   // keep a slider that is being dragged; only refresh its number
   const active = document.activeElement && document.activeElement.closest && document.activeElement.closest('#actionbar input[type=range]');
   if (active && barSig && barId === it.id){
     bar.querySelectorAll('input[type=range]').forEach(r => { const o = r.parentElement.querySelector('output'); if (o) o.textContent = Math.round(r.value) + '%'; });
-    const inf = bar.querySelector('.info'); if (inf) inf.innerHTML = infoText(it);
+    bar.querySelectorAll('.info').forEach(inf => {
+      // a solid's water line follows the water; the other lines show the usual values
+      inf.innerHTML = it.k === 'solid' && inf.classList.contains('mark') ? (it.w > 0 ? waterText(it) : `Holds ${fmtV(capacity(it))} cubic units.`) : infoText(it);
+    });
     const hd = bar.querySelector('.abhead'); if (hd) hd.textContent = itemName(it);
     barSig = sig; return;
   }
   barSig = sig; barId = it.id;
   let h = `<div class="abhead">${esc(itemName(it))}</div>`;
+  if (it.k === 'vbox'){
+    // size the box in whole units, then fill it with unit cubes and count them
+    const st = (key, label) => `<span class="vbstep"><span class="acts-lbl">${label}</span><button type="button" class="act vbb" data-act="vb-${key}-" aria-label="${label} smaller">−</button><b>${it[key]}</b><button type="button" class="act vbb" data-act="vb-${key}+" aria-label="${label} bigger">+</button></span>`;
+    h += `<div class="acts vbsteps">${st('l','Length')}${st('w','Width')}${st('h','Height')}</div>`;
+    h += `<label class="slider">Fill <input type="range" min="0" max="100" step="1" value="${Math.round((it.f || 0)*100)}" data-slide="f" aria-label="Fill with unit cubes"><output>${Math.round((it.f || 0)*100)}%</output></label>`;
+    h += `<div class="acts">${abtn('vbfill','fill','Fill')}${abtn('vbempty','cancel','Empty')}${abtn('turn','turn','Turn')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
+    h += `<div class="info mark">${vboxInfo(it)}</div>`;
+    bar.innerHTML = h; bar.hidden = false; placeBar(); return;
+  }
   if (it.k === 'soma'){
     h += `<div class="acts">${abtn('sturn','turn','Turn')}${abtn('stip','tip','Tip forward')}${abtn('sroll','roll','Roll sideways')}${abtn('scol','color', somaOne ? 'Separate colors' : 'One color')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
     if (somaOne) h += `<div class="acts"><span class="acts-lbl">Color for all pieces:</span>${SOMA_SWATCHES.map(c => `<button type="button" class="swatch" data-scolor="${c}" aria-pressed="${c.toLowerCase() === somaCol.toLowerCase()}" title="${c}" aria-label="Color ${c}"><span style="background:${c}"></span></button>`).join('')}<label class="swatch" title="Pick any color" aria-label="Pick any color" style="position:relative;cursor:pointer"><span style="background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)"></span><input type="color" data-scolorpick value="${somaCol}" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%"></label></div>`;
@@ -1414,10 +1570,17 @@ function updateBar(){
     bar.innerHTML = h; bar.hidden = false; placeBar(); return;
   }
   if (it.k === 'solid'){
-    h += `<label class="slider">Unfold <input type="range" min="0" max="100" step="1" value="${Math.round((it.u || 0)*100)}" data-slide="u" aria-label="Unfold into a net"><output>${Math.round((it.u || 0)*100)}%</output></label>`;
-    const tm = truncMax(it.s);
-    if (tm > 0) h += `<label class="slider">${it.s === 'cone' ? 'Cut the tip' : 'Truncate'} <input type="range" min="0" max="${Math.round(tm*100)}" step="1" value="${Math.round((it.t || 0)*100)}" data-slide="t" aria-label="${it.s === 'cone' ? 'Cut off the tip' : 'Cut off the corners'}"><output>${Math.round((it.t || 0)*100)}%</output></label>`;
-    h += `<div class="acts">${abtn('face','face','Next face down')}${abtn('turn','turn','Turn')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
+    const glass = !!SHAPES[it.s].glass;
+    if (!glass){
+      h += `<label class="slider">Unfold <input type="range" min="0" max="100" step="1" value="${Math.round((it.u || 0)*100)}" data-slide="u" aria-label="Unfold into a net"><output>${Math.round((it.u || 0)*100)}%</output></label>`;
+      const tm = truncMax(it.s);
+      if (tm > 0) h += `<label class="slider">${it.s === 'cone' ? 'Cut the tip' : 'Truncate'} <input type="range" min="0" max="${Math.round(tm*100)}" step="1" value="${Math.round((it.t || 0)*100)}" data-slide="t" aria-label="${it.s === 'cone' ? 'Cut off the tip' : 'Cut off the corners'}"><output>${Math.round((it.t || 0)*100)}%</output></label>`;
+    }
+    // water: the slider sets how high the water comes (as a percent of the height)
+    const lvl = Math.round(waterLevel(it, it.w || 0)/waterTable(it).H*100);
+    h += `<label class="slider">Water <input type="range" min="0" max="100" step="1" value="${lvl}" data-water="1" aria-label="Water height"><output>${lvl}%</output></label>`;
+    h += `<div class="acts">${glass ? '' : abtn('face','face','Next face down')}${glass ? '' : abtn('glass','glass', it.gl ? 'Solid look' : 'See-through')}${it.w > 0 ? abtn('pour','pour','Pour into…') + abtn('wempty','cancel','Empty') : ''}${abtn('turn','turn','Turn')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
+    if (it.w > 0 || glass) h += `<div class="info mark">${it.w > 0 ? waterText(it) : `Holds ${fmtV(capacity(it))} cubic units. Move Water to fill it, or pour water in from another glass.`}</div>`;
   } else {
     h += `<div class="acts">${abtn('flip','flip','Flip')}${abtn('turn','turn','Turn')}${abtn('tip','tip','Tip over')}${abtn('dup','dup','Copy')}${abtn('del','del','Delete','danger')}</div>`;
   }
@@ -1425,6 +1588,7 @@ function updateBar(){
   bar.innerHTML = h; bar.hidden = false; placeBar();
 }
 function infoText(it){
+  if (it.k === 'vbox') return vboxInfo(it);   // always shown: the counting is the point
   if (!S.values) return '';
   if (it.k === 'block') return 'Value: ' + (it.neg ? '−' : '') + AB[it.t].t;
   if (it.k === 'soma'){ const n = pieceOf(it).cells.length; return `${n} cubes · volume ${n} cubic units`; }
@@ -1438,9 +1602,60 @@ function infoText(it){
   const sd = solidOf(it.s, it.bottom, it.t || 0);
   if (sd.curved){
     const caps = sd.faces.filter((f, i) => sd.isCap(i)).length;
-    return `${caps} flat circular face${caps === 1 ? '' : 's'} and 1 curved surface${it.s === 'cone' && !(it.t > 0) ? ' · 1 vertex (the tip)' : ''}`;
+    return `${caps} flat circular face${caps === 1 ? '' : 's'} and 1 curved surface${it.s === 'cone' && !(it.t > 0) ? ' · 1 vertex (the tip)' : ''}<br>${solidVolumeText(it)}`;
   }
-  return `Faces <b>${sd.F}</b> · Edges <b>${sd.E}</b> · Vertices <b>${sd.Vn}</b> &nbsp;→&nbsp; F + V − E = ${sd.F} + ${sd.Vn} − ${sd.E} = <b>${sd.F + sd.Vn - sd.E}</b>`;
+  return `Faces <b>${sd.F}</b> · Edges <b>${sd.E}</b> · Vertices <b>${sd.Vn}</b> &nbsp;→&nbsp; F + V − E = ${sd.F} + ${sd.Vn} − ${sd.E} = <b>${sd.F + sd.Vn - sd.E}</b><br>${solidVolumeText(it)}`;
+}
+/* Volume of a solid, in cubic units (1 unit = BU, the edge of the "1" algebra block and of a unit cube in the Volume rectangular prism).
+   Measured from the shape itself, and shown with the formula that fits it. */
+const fmtV = v => { const r = Math.round(v*100)/100; return String(Math.abs(r - Math.round(r)) < 1e-9 ? Math.round(r) : r); };
+function polyVolume(verts, faces){
+  // split the solid into pyramids from a point inside it (its corners' average) to every face
+  const c = V.mul(verts.reduce((s, v) => V.add(s, v), [0, 0, 0]), 1/verts.length);
+  let vol = 0;
+  for (const f of faces){ const p = f.vi.map(i => verts[i]); for (let k = 1; k < p.length - 1; k++) vol += Math.abs(V.dot(V.sub(p[0], c), V.cross(V.sub(p[k], c), V.sub(p[k + 1], c))))/6; }
+  return vol;
+}
+function faceArea(verts, f){ let a = [0, 0, 0]; const p = f.vi.map(i => verts[i]); for (let k = 1; k < p.length - 1; k++) a = V.add(a, V.cross(V.sub(p[k], p[0]), V.sub(p[k + 1], p[0]))); return V.len(a)/2; }
+function solidVolumeText(it){
+  const U = BU, U3 = U*U*U, b = baseOf(it.s), P = b.poly, grp = SHAPES[it.s].grp;
+  const whole = polyVolume(P.verts, P.faces)/U3;
+  const top = Math.max(...P.verts.map(v => v[1])), H = top/U;                                          // height above the base (base at y = 0)
+  const baseF = P.faces.find(f => f.plane === b.bottom), B = baseF ? faceArea(P.verts, baseF)/(U*U) : 0;   // the base's area
+  const R = Math.max(...P.verts.filter(v => Math.abs(v[1]) < 1e-6).map(v => Math.hypot(v[0], v[2])))/U;   // radius of a round base
+  let s;
+  if (grp === 'glass'){
+    // glasses: the same height and the same top, so their volumes compare directly
+    const g = SHAPES[it.s].glass, r = Math.max(...P.verts.map(v => Math.hypot(v[0], v[2])))/U, side = (Math.max(...P.verts.map(v => v[0])) - Math.min(...P.verts.map(v => v[0])))/U;
+    return { cyl:`Holds π × r² × h = π × ${fmtV(r)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*r*r*H)}</b> cubic units`,
+             cone:`Holds ⅓ × π × r² × h = ⅓ × π × ${fmtV(r)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*r*r*H/3)}</b> cubic units (⅓ of the cylinder glass)`,
+             prism:`Holds s² × h = ${fmtV(side)}² × ${fmtV(H)} = <b>${fmtV(side*side*H)}</b> cubic units`,
+             pyr:`Holds ⅓ × s² × h = ⅓ × ${fmtV(side)}² × ${fmtV(H)} = <b>${fmtV(side*side*H/3)}</b> cubic units (⅓ of the square prism glass)` }[g];
+  }
+  if (it.s === 'cyl') s = `Volume = π × r² × h = π × ${fmtV(R)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*R*R*H)}</b> cubic units`;
+  else if (it.s === 'cone'){
+    if (it.t > 0){
+      // a frustum: the tip cut off at (1 − t) of the height
+      const h = H*(1 - it.t), r = R*it.t;
+      return `Volume (frustum) = ⅓ × π × h × (R² + R·r + r²) = ⅓ × π × ${fmtV(h)} × (${fmtV(R)}² + ${fmtV(R)}·${fmtV(r)} + ${fmtV(r)}²) ≈ <b>${fmtV(Math.PI*h*(R*R + R*r + r*r)/3)}</b> cubic units · the whole cone: ${fmtV(Math.PI*R*R*H/3)}`;
+    }
+    s = `Volume = ⅓ × π × r² × h = ⅓ × π × ${fmtV(R)}² × ${fmtV(H)} ≈ <b>${fmtV(Math.PI*R*R*H/3)}</b> cubic units`;
+  }
+  else if (grp === 'prism') s = `Volume = B × h = ${fmtV(B)} × ${fmtV(H)} = <b>${fmtV(B*H)}</b> cubic units <span style="color:var(--muted)">(B = area of the base)</span>`;
+  else if (grp === 'pyr') s = `Volume = ⅓ × B × h = ⅓ × ${fmtV(B)} × ${fmtV(H)} = <b>${fmtV(B*H/3)}</b> cubic units <span style="color:var(--muted)">(B = area of the base)</span>`;
+  else {
+    // regular solids: from the edge length a
+    const e0 = P.edges[0], a = V.dist(P.verts[e0.a], P.verts[e0.b])/U;
+    const F = { tetra:['a³ ÷ (6√2)', a**3/(6*Math.SQRT2)], cube:['a³', a**3], octa:['(√2 ÷ 3) × a³', Math.SQRT2/3*a**3],
+                dodeca:['(15 + 7√5) ÷ 4 × a³', (15 + 7*Math.sqrt(5))/4*a**3], icosa:['5 × (3 + √5) ÷ 12 × a³', 5*(3 + Math.sqrt(5))/12*a**3] }[it.s];
+    s = `Volume = ${F[0]} with edge a = ${fmtV(a)} → <b>${fmtV(F[1])}</b> cubic units`;
+  }
+  if (it.t > 0){
+    // truncated: measured from the cut shape
+    const sd = solidOf(it.s, it.bottom, it.t), cut = polyVolume(sd.verts, sd.faces)/U3;
+    return `Volume after cutting ≈ <b>${fmtV(cut)}</b> cubic units · the uncut solid: ${fmtV(whole)} · cut away: ${Math.round((1 - cut/whole)*100)}%`;
+  }
+  return s;
 }
 // the panel can be dragged by its title to anywhere in the world view; the place is remembered
 let barPos = null;
@@ -1474,6 +1689,15 @@ bar.addEventListener('click', e => { const s = e.target.closest('[data-scolor]')
 bar.addEventListener('input', e => { if (e.target.matches && e.target.matches('[data-scolorpick]')) setSomaCol(e.target.value, false); });
 bar.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-scolorpick]')) setSomaCol(e.target.value, true); });
 bar.addEventListener('input', e => {
+  const wr = e.target.closest('[data-water]');
+  if (wr){
+    // the water height slider: the solid holds the volume up to that height
+    const it = S.items[S.sel]; if (!it) return;
+    if (!slidePre) slidePre = begin();
+    const v = Math.round(waterVolumeAt(it, waterTable(it).H*(+wr.value/100))*1000)/1000;
+    if (v > 0) it.w = v; else delete it.w;
+    dirty(); sendLater(it.id); return;
+  }
   const r = e.target.closest('[data-slide]'); if (!r) return;
   const it = S.items[S.sel]; if (!it) return;
   if (!slidePre) slidePre = begin();
@@ -1481,7 +1705,7 @@ bar.addEventListener('input', e => {
   dirty(); sendLater(it.id);
 });
 bar.addEventListener('change', e => {
-  if (!e.target.closest('[data-slide]') || !slidePre) return;
+  if (!e.target.closest('[data-slide],[data-water]') || !slidePre) return;
   flush(); const it = S.items[S.sel]; if (it) put([it]);
   commit(slidePre); slidePre = null;
 });
@@ -1500,6 +1724,17 @@ bar.addEventListener('click', e => {
     return;
   }
   if (a === 'swap'){ if (MARK && MARK.fold){ MARK.fold.s *= -1; checkMark(); dirty(); } return; }
+  if (a === 'pour'){ POUR = it.id; canvas.style.cursor = 'copy'; toast('Now click the glass or solid to pour the water into (Esc to stop).'); return; }
+  if (a === 'wempty'){ act(() => { const n = { ...it }; delete n.w; put([n]); }); return; }
+  if (a === 'glass'){ act(() => { const n = { ...it }; if (n.gl) delete n.gl; else n.gl = true; put([n]); }); return; }
+  if (a === 'vbfill'){ vbFillTo(it.id, 1); return; }
+  if (a === 'vbempty'){ vbFillTo(it.id, 0); return; }
+  if (a.startsWith('vb-')){
+    // a bigger or smaller box (1–10 units each way); it stays as full as it was (as a fraction)
+    const key = a[3], d = a[4] === '+' ? 1 : -1, v = Math.min(10, Math.max(1, it[key] + d));
+    if (v !== it[key]) act(() => put([{ ...it, [key]:v }]));
+    return;
+  }
   const r6 = v => Math.round(v*1e6)/1e6;
   act(() => {
     if (a === 'del') drop([it.id]);
@@ -1523,9 +1758,11 @@ bar.addEventListener('click', e => {
       const n = structuredClone(it); n.id = ME.id.slice(1, 5) + rid(); n.x = snap(it.x + (it.k === 'paper' ? 4.5 : 2.5));
       if (n.k === 'block') n.y = stackY(n, n.x, n.z);
       if (n.k === 'soma'){ n.x = it.x + 4; n.y = somaY(n); }
+      if (n.k === 'vbox') n.x = snap(it.x + Math.max(it.l, it.w)*BU + 1);
       put([n]); S.sel = n.id;
     } else if (a === 'turn'){
-      if (it.k !== 'block') put([{ ...it, ry:((it.ry || 0) + Math.PI/4) % (2*Math.PI) }]);
+      if (it.k === 'vbox') put([{ ...it, ry:((it.ry || 0) + Math.PI/2) % (2*Math.PI) }]);   // a box turns a quarter turn
+      else if (it.k !== 'block') put([{ ...it, ry:((it.ry || 0) + Math.PI/4) % (2*Math.PI) }]);
       else { const n = { ...it }; if (n.sw) delete n.sw; else n.sw = true; n.y = stackY(n, n.x, n.z); put([n]); }
     } else if (a === 'tip'){ const n = { ...it, o:((it.o || 0) + 1) % 3 }; n.y = stackY(n, n.x, n.z); put([n]); }
     else if (a === 'flip'){ const n = { ...it }; if (n.neg) delete n.neg; else n.neg = true; put([n]); }
@@ -1550,6 +1787,7 @@ window.addEventListener('keydown', e => {
   if (mod && k === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
   else if (mod && k === 'y'){ e.preventDefault(); redo(); }
   else if (!mod && (k === 'delete' || k === 'backspace') && S.sel){ e.preventDefault(); act(() => drop([S.sel])); }
+  else if (!mod && k === 'escape' && POUR){ POUR = null; canvas.style.cursor = ''; toast('Pouring stopped.'); }
   else if (!mod && k === 'escape'){ if (MARK) MARK = null; else if (TOOL !== 'move') setTool('move'); else S.sel = null; dirty(); }
   else if (!mod && !e.altKey){ const t = { v:'move', h:'hand', p:'pen', t:'text', e:'erase' }[k]; if (t) setTool(t); }
 });
