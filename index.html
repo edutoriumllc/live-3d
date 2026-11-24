@@ -1,8 +1,17 @@
 <!doctype html>
+<!--
+  Live 3D
+  Copyright (c) 2026 Edutorium of Excellence LLC. All rights reserved.
+  This software and its content may not be copied, modified, distributed or sold without written permission
+  from Edutorium of Excellence LLC. See LICENSE.txt.
+  Third-party libraries keep their own licenses: 3D drawing uses Three.js (MIT License); Work together uses PeerJS (MIT License).
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="copyright" content="© 2026 Edutorium of Excellence LLC. All rights reserved.">
+<meta name="author" content="Edutorium of Excellence LLC">
 <title>Live 3D</title>
 <style>
 :root{
@@ -55,11 +64,29 @@ main{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:0}
 #tray summary::-webkit-details-marker{display:none}
 #tray summary::before{content:"";width:6px;height:6px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s;margin:0 2px}
 #tray details[open] summary::before{transform:rotate(45deg)}
+#tray .traysearch{position:sticky;top:-6px;z-index:2;background:var(--panel);padding:6px 0;margin:0 0 2px}
+#tray .traysearch input{width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:inherit}
+#tray .traysearch input:focus{outline:2px solid var(--accent);outline-offset:1px}
+#tray .tray-none{font-size:13px;color:var(--muted);margin:10px 2px}
+#tray details.topic{border-bottom:0;padding:3px 0}
+#tray details.topic>summary{font-size:14px;font-weight:800;letter-spacing:0;padding:9px 10px;border-radius:8px;
+  color:#ffffff;background:#2e0330;border-left:5px solid #4da656;box-shadow:0 1px 2px rgba(0,0,0,.18)}   /* Edutorium logo plum, logo green edge */
+#tray details.topic>summary:hover{background:#4a1a4d}
+#tray details.topic[open]>summary{margin-bottom:4px}
+#tray details.topic.favs>summary{background:#2f6f99}   /* the logo's blue, a little deeper so white text reads */
+#tray details.topic.favs>summary:hover{background:#265d81}
+#tray details.topic details.tgrp{border-bottom:0;border-top:1px dashed var(--line);margin-left:8px;padding:2px 0 6px}
+#tray details.tgrp>summary .gname{flex:1}
+#tray .favbtn{border:0;background:none;color:var(--muted);font-size:17px;line-height:1;padding:2px 4px;cursor:pointer;border-radius:6px}
+#tray .favbtn.on{color:#d97706}
+#tray .favbtn:hover,#tray .favbtn:focus-visible{background:color-mix(in srgb,currentColor 14%,transparent)}
+#tray [hidden]{display:none!important}
 .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
 .tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 2px 6px;border:1px solid transparent;border-radius:9px;background:var(--chip);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.15;min-width:0}
 .tile:hover{border-color:var(--accent)}
 .tile img{width:72px;height:72px;display:block}
 .tray-hint{font-size:12px;color:var(--muted);margin:8px 2px 0}
+.tray-hint.copyright{font-size:11px;opacity:.85;margin-top:12px}
 
 #stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:#eef3f8}
 #view3d{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
@@ -1475,23 +1502,127 @@ function thumbnails(){
   r2.dispose();
   return out;
 }
-function buildTray(){
-  const pics = thumbnails();
-  let html = '';
+// a saved picture gets a strip under the world with the Edutorium logo and "Live 3D", so it never covers a piece
+function brandedPicture(src){
+  const bw = src.width, bh = src.height, fh = Math.round(Math.max(48, Math.min(110, bw * 0.05)));
+  const cv = document.createElement('canvas'); cv.width = bw; cv.height = bh + fh;
+  const g = cv.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(src, 0, 0);
+  g.fillStyle = '#e5e7eb'; g.fillRect(0, bh, bw, Math.max(1, Math.round(fh/48)));
+  const logo = document.querySelector('.brand .logo');
+  const lh = Math.round(fh * 0.64), lw = logo && logo.naturalHeight ? Math.round(lh * logo.naturalWidth / logo.naturalHeight) : 0;
+  const fs = Math.round(fh * 0.34), pad = Math.round(fh * 0.3), ty = bh + fh/2;
+  g.font = `700 ${fs}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`; g.textBaseline = 'middle';
+  const w1 = g.measureText('Live ').width, w2 = g.measureText('3D').width;
+  let x = bw - pad - w1 - w2 - (lw ? lw + Math.round(fh*0.18) : 0);   // bottom-right corner
+  if (lw){ try { g.drawImage(logo, x, bh + (fh - lh)/2, lw, lh); } catch(e){} x += lw + Math.round(fh*0.18); }
+  g.fillStyle = '#111827'; g.fillText('Live ', x, ty);
+  g.fillStyle = '#2563eb'; g.fillText('3D', x + w1, ty);
+  return cv;
+}
+/* the side menu: search box, ★ Favorites and topic headings (the same layout as Edutorium Live) */
+const TOPICS = [
+  ['solids',  'Solids',  ['reg', 'prism', 'pyr', 'round']],
+  ['volume',  'Volume',  ['volume']],
+  ['origami', 'Origami', ['origami']],
+  ['puzzles', 'Puzzles', ['soma', 'pent']],
+  ['algebra', 'Algebra', ['blocks']],
+];
+// extra search words, so a teacher can find a tool by what it teaches
+const GROUP_WORDS = {
+  reg:'platonic polyhedra faces edges vertices nets unfold truncate', prism:'polyhedra faces edges vertices nets unfold base',
+  pyr:'polyhedra faces edges vertices nets unfold apex', round:'circle curved nets unfold frustum',
+  volume:'capacity water pour unit cubes rectangular prism compare containers', origami:'paper fold crease angle bisector',
+  soma:'puzzle cubes', pent:'puzzle cubes polycubes', blocks:'polynomials expressions cubes'
+};
+let trayQ = '', trayFavs = [], trayOpen = [], trayPics = null;
+try { const f = JSON.parse(ls.get('l3d-favs') || '[]'); if (Array.isArray(f)) trayFavs = f.filter(x => typeof x === 'string'); } catch(e){}
+try { const o = JSON.parse(ls.get('l3d-topics-open') || '["favs"]'); if (Array.isArray(o)) trayOpen = o.filter(x => typeof x === 'string'); } catch(e){}   // first visit: only Favorites open
+function buildTray(keepPics){
+  const pics = keepPics && trayPics ? trayPics : (trayPics = thumbnails());   // starring a group reuses the pictures
+  const parts = {};
   for (const g of GROUPS){
-    html += `<details open><summary>${g.name}</summary><div class="tiles">`;
+    const fav = trayFavs.includes(g.id);
+    let html = `<details open class="tgrp" data-g="${g.id}" data-k="${esc((g.name + ' ' + (GROUP_WORDS[g.id] || '')).toLowerCase())}"><summary><span class="gname">${esc(g.name)}</span>`+
+               `<button type="button" class="favbtn${fav ? ' on' : ''}" data-fav="${g.id}" aria-pressed="${fav}" title="${fav ? 'Remove from Favorites' : 'Add to Favorites'}" aria-label="${fav ? 'Remove' : 'Add'} ${esc(g.name)} ${fav ? 'from' : 'to'} Favorites">${fav ? '★' : '☆'}</button>`+
+               `</summary><div class="tiles">`;
     for (const pid of g.tiles) html += `<button type="button" class="tile" data-pid="${pid}" aria-label="Add ${esc(tileName(pid))}"><img src="${pics[pid]}" alt=""><span>${esc(tileName(pid))}</span></button>`;
-    html += `</div></details>`;
+    parts[g.id] = html + `</div></details>`;
+  }
+  let html = `<div class="traysearch"><input type="search" id="traySearch" placeholder="Search tools" aria-label="Search tools" autocomplete="off" spellcheck="false" value="${esc(trayQ)}"></div>`;
+  html += `<p class="tray-none" hidden>No tools match.</p>`;
+  const favs = trayFavs.filter(id => parts[id]);
+  html += `<details class="topic favs" data-topic="favs"${trayOpen.includes('favs') ? ' open' : ''}><summary>★ Favorites</summary>`+
+          (favs.length ? favs.map(id => parts[id]).join('') : `<p class="tray-hint">Tap ☆ next to a tool's name to keep it here.</p>`) + `</details>`;
+  const used = new Set();
+  for (const [tid, name, ids] of [...TOPICS, ['more', 'More tools', GROUPS.map(g => g.id)]]){
+    const inner = ids.filter(id => parts[id] && !used.has(id));
+    if (!inner.length) continue;
+    inner.forEach(id => used.add(id));
+    html += `<details class="topic" data-topic="${tid}" data-k="${esc(name.toLowerCase())}"${trayOpen.includes(tid) ? ' open' : ''}><summary>${esc(name)}</summary>${inner.map(id => parts[id]).join('')}</details>`;
   }
   html += `<p class="tray-hint">Drag pieces into the world, or click one. Drag pieces back here to remove them.</p>`;
+  html += `<p class="tray-hint copyright">© 2026 Edutorium of Excellence LLC. All rights reserved.</p>`;
   $('#tray').innerHTML = html;
+  if (trayQ) filterTray();
 }
+function filterTray(){
+  const tray = $('#tray'), q = trayQ.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
+  const hit = s => words.every(w => s.includes(w));
+  let any = false;
+  for (const tp of tray.querySelectorAll('details.topic')){
+    if (tp.dataset.topic === 'favs'){ tp.hidden = !!q; continue; }   // no doubles while searching
+    let tpAny = false;
+    for (const gd of tp.querySelectorAll('details.tgrp')){
+      const whole = !q || hit(gd.dataset.k + ' ' + tp.dataset.k);
+      let n = 0;
+      for (const t of gd.querySelectorAll('.tile')){
+        const ok = whole || hit((t.getAttribute('aria-label') || '').toLowerCase());
+        t.hidden = !ok; if (ok) n++;
+      }
+      gd.hidden = !n;
+      if (q && n) gd.open = true;
+      if (n) tpAny = true;
+    }
+    tp.hidden = !tpAny;
+    tp.open = q ? tpAny : trayOpen.includes(tp.dataset.topic);
+    if (tpAny) any = true;
+  }
+  const none = tray.querySelector('.tray-none');
+  if (none) none.hidden = !q || any;
+}
+$('#tray').addEventListener('input', e => {
+  if (e.target.id !== 'traySearch') return;
+  trayQ = e.target.value; filterTray();
+});
+$('#tray').addEventListener('keydown', e => {
+  if (e.target.id === 'traySearch' && e.key === 'Escape'){ e.target.value = trayQ = ''; filterTray(); }
+});
+// remember which topic headings are open on this device (not the ones a search opens)
+$('#tray').addEventListener('toggle', e => {
+  const tp = e.target;
+  if (trayQ || !tp.matches || !tp.matches('details.topic')) return;
+  const id = tp.dataset.topic, i = trayOpen.indexOf(id);
+  if (tp.open && i < 0) trayOpen.push(id);
+  if (!tp.open && i >= 0) trayOpen.splice(i, 1);
+  ls.set('l3d-topics-open', JSON.stringify(trayOpen));
+}, true);
 $('#tray').addEventListener('pointerdown', e => {
   const t = e.target.closest('.tile'); if (!t || e.button > 0 || D) return;
   e.preventDefault();
   D = { mode:'new', pid:t.dataset.pid, sx:e.clientX, sy:e.clientY, pre:begin() };
 });
 $('#tray').addEventListener('click', e => {
+  const fb = e.target.closest('[data-fav]');
+  if (fb){   // star a tool group: it also shows under Favorites (this device only)
+    e.preventDefault(); e.stopPropagation();
+    const id = fb.dataset.fav, i = trayFavs.indexOf(id);
+    if (i >= 0) trayFavs.splice(i, 1); else trayFavs.push(id);
+    ls.set('l3d-favs', JSON.stringify(trayFavs));
+    buildTray(true);
+    const nb = $('#tray').querySelector(`.topic:not(.favs) [data-fav="${id}"]`);
+    if (nb) nb.focus();
+    return;
+  }
   const t = e.target.closest('.tile'); if (!t || e.detail !== 0) return;
   const pre = begin(), it = newItem(t.dataset.pid, { x:0, z:0 }); put([it]); S.sel = it.id; commit(pre);
 });
@@ -1827,6 +1958,7 @@ $('#feedbackBtn').onclick = () => {
   <li><b>Tools:</b> Move (V) picks up pieces, Hand (H) only spins the camera, Pen (P) draws on pieces and the floor, Text (T) adds a note, Eraser (E) removes pen marks and notes.</li>
   <li><b>3D algebra blocks:</b> Flip for the negative side, Turn to swing it round, Tip over to stand it another way.</li>
   <li><b>Work together:</b> one person starts and gets a code; the partner types it. Each person moves their own camera; the pieces are shared.</li></ul></div>
+  <p style="margin:12px 0 0;font-size:12px">© 2026 Edutorium of Excellence LLC. All rights reserved. 3D drawing uses Three.js (MIT License); Work together uses PeerJS (MIT License).</p>
   <menu><button class="btn primary" value="cancel">Got it</button></menu>`, null);
 
 /* ---------- save: picture, file, link ---------- */
@@ -1865,7 +1997,7 @@ $('#saveBtn').onclick = () => openDlg(`<h2>Save your work</h2><div class="saves"
     <button class="saveopt" value="link"><b>Copy a world link</b><span>A link that opens this world, for slides or Google Classroom.</span></button></div>
   <p style="margin-top:12px;font-size:13px">This browser also keeps the world while you work.</p><menu><button class="btn" value="cancel">Close</button></menu>`,
   v => {
-    if (v === 'png'){ S.sel = null; sync(); renderer.render(scene, camera); canvas.toBlob(b => { if (b) saveBlob(b, `live-3d-${today()}.png`, 'Picture', 'image/png', '.png'); }, 'image/png'); }
+    if (v === 'png'){ S.sel = null; sync(); renderer.render(scene, camera); brandedPicture(canvas).toBlob(b => { if (b) saveBlob(b, `live-3d-${today()}.png`, 'Picture', 'image/png', '.png'); }, 'image/png'); }
     else if (v === 'file') saveBlob(new Blob([JSON.stringify({ app:'live-3d', v:1, items:compact() })], { type:'application/json' }), `live-3d-world-${today()}.json`, 'Live 3D world', 'application/json', '.json');
     else if (v === 'open') $('#fileIn').click();
     else if (v === 'link') setTimeout(async () => {
